@@ -1,10 +1,16 @@
 # Casualties Mod Manager
 
+> **Выпуск0.5.0 временно снят с публичной загрузки.** Microsoft Defender обнаруживает
+> `Trojan:Win32/Sabsik.TE.A!ml` в опубликованном EXE. Причина расследуется; ложное
+> срабатывание пока не подтверждено. Не восстанавливайте файл из карантина и не
+> добавляйте исключения ради запуска. Предыдущие сборки не считаются проверенной
+> заменой в рамках этого расследования. Исходный код остаётся доступен.
+
 Переносимый менеджер модов для **Casualties: Unknown 1.0.1**, Windows x64.
 
 ## Скачать друзьям
 
-[Последний EXE](https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/Casualties-ModManager.exe) · [Все выпуски](https://github.com/AzriAnDr/casualties-mod-manager/releases)
+Бинарная выдача0.5.0 приостановлена. [История выпусков](https://github.com/AzriAnDr/casualties-mod-manager/releases)
 
 Достаточно передать один `Casualties-ModManager.exe`. Русификатор, справочник
 и BepInEx встроены в него. Папки автора, исходники и отдельные ZIP рядом с EXE
