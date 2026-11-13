@@ -13,13 +13,14 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.4.0.0")]
-[assembly: AssemblyFileVersion("0.4.0.0")]
+[assembly: AssemblyVersion("0.5.0.0")]
+[assembly: AssemblyFileVersion("0.5.0.0")]
 
-public sealed class Manager : Form
+public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.4.0";
+    const string LauncherVersion = "0.5.0";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
+    static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
     public sealed class Manifest { public string Module; public string Version; public bool Disabled; public List<Item> Files = new List<Item>(); }
     public sealed class Module { public string Id, Name, Description, Prefix, Dll, Resource; public Module(string id,string name,string description,string prefix,string dll,string resource) { Id=id;Name=name;Description=description;Prefix=prefix;Dll=dll;Resource=resource; } }
@@ -75,7 +76,7 @@ public sealed class Manager : Form
         Font = new Font("Segoe UI", 10);
         BackColor = Canvas;
         ForeColor = Ink;
-        ClientSize = new Size(1040, 800);
+        ClientSize = new Size(1100, 880);
         MinimumSize = new Size(950, 760);
         StartPosition = FormStartPosition.CenterScreen;
         try { using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("AppIcon.ico")) if (s != null) using (var icon = new Icon(s)) Icon = (Icon)icon.Clone(); } catch { }
@@ -142,7 +143,7 @@ public sealed class Manager : Form
         actions.Controls.AddRange(new Control[] { install, toggle, remove, import, adopt, online });
         tips.SetToolTip(adopt, "Для установленного вручную мода: посмотреть найденные файлы, сохранить копию и разрешить менеджеру обновлять или удалять только эти файлы.");
         tips.SetToolTip(import, "Выберите ZIP для выделенного модуля. Перед установкой менеджер покажет список файлов.");
-        install.Click += delegate { ActionRun("установка / обновление", delegate(string root, Module m) { if (m.Id == "together") return OnlineInstall(root, m); using (Stream s = Resource(m)) { var files = ReadZip(s, m); if (!Preview(files, "Установить или обновить «" + m.Name + "»?")) return null; bool update = Load(root, m) != null; Install(root, m, files, "bundled"); return update ? "Обновлён из комплекта" : "Установлен из комплекта"; } }); };
+        install.Click += delegate { ActionRun("установка / обновление", delegate(string root, Module m) { if(m.Id!="bepinex"&&!EnsureLoaderForCommunity(root,true))return null; if (m.Id == "together") return OnlineInstall(root, m); using (Stream s = Resource(m)) { var files = ReadZip(s, m); if (!Preview(files, "Установить или обновить «" + m.Name + "»?")) return null; bool update = Load(root, m) != null; Install(root, m, files, "bundled"); return update ? "Обновлён из комплекта" : "Установлен из комплекта"; } }); };
         remove.Click += delegate { ActionRun("удаление", delegate(string root, Module m) { Manifest old = Load(root, m); if (old == null) throw new Exception("Для ручной установки сначала выберите «Управлять модом…» и проверьте найденные файлы."); if (!Preview(old.Files.ToDictionary(f => f.Path, f => new byte[0]), "Удалить перечисленные файлы «" + m.Name + "»? Конфиги и открытия сохранятся.", "Удалить файлы")) return null; Remove(root, m); return "Управляемые файлы удалены; настройки сохранены"; }); };
         toggle.Click += delegate { ActionRun("переключение состояния", delegate(string root, Module m) { Manifest old = Load(root, m); if (old == null) throw new Exception("Сначала включите управление найденным модом."); bool disabled = !old.Disabled; Toggle(root, m, disabled); return disabled ? "Отключён; DLL временно исключены из загрузки" : "Включён; DLL восстановлены для загрузки"; }); };
         import.Click += delegate { ActionRun("импорт ZIP", delegate(string root, Module m) { if (m.Id == "unlock" && MessageBox.Show(this, "Совместимость SkipCharacterUnlock с игрой 1.0.1 и Together не подтверждена. Импорт возможен только из ZIP с опознаваемым SkipCharacterUnlock.dll. Продолжить?", "Совместимость не проверена", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return null; using (var d = new OpenFileDialog { Filter = "ZIP-архив|*.zip", Title = "ZIP для модуля: " + m.Name }) { if (d.ShowDialog(this) != DialogResult.OK) return null; using (Stream s = File.OpenRead(d.FileName)) { var files = ReadZip(s, m); if (!Preview(files, "Импорт в модуль «" + m.Name + "». Проверьте пути перед установкой.")) return null; Install(root, m, files, "import"); return "Установлен / обновлён из ZIP «" + Path.GetFileName(d.FileName) + "»"; } } }); };
@@ -155,6 +156,7 @@ public sealed class Manager : Form
         layout.Controls.Add(actionStatus, 0, 5);
         log = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Surface, ForeColor = Muted, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9), Margin = Padding.Empty };
         layout.Controls.Add(log, 0, 6);
+        InstallCatalogUi(layout, information, actions);
         Controls.Add(layout);
         Shown += delegate { RefreshList(); };
     }
@@ -195,7 +197,14 @@ public sealed class Manager : Form
         catch (Exception e) { ShowFailure("Обновление лаунчера", e); }
         finally { if (!IsDisposed) { busy = false; UpdateDetails(); } }
     }
-    Module Selected() { return list.SelectedItems.Count == 0 ? null : Catalog[list.SelectedItems[0].Index]; }
+    Module Selected() { return list.SelectedItems.Count == 0 || list.SelectedItems[0].Index >= Catalog.Length ? null : Catalog[list.SelectedItems[0].Index]; }
+    static string ModuleState(Module m,Manifest manifest,int detected,string installedVersion)
+    {
+        string state=manifest!=null?(manifest.Disabled?"Отключён":"Под управлением"):(detected>0?"Установлен вручную":"Не установлен");
+        string latest=m.Resource!=null?BundledVersion(m.Id):m.Id=="together"?KnownTogetherVersion:null;
+        if((manifest!=null||detected>0)&&latest!=null&&ModCatalog.CompareVersions(installedVersion,latest)==ModCatalog.VersionComparison.Older)state+=" · есть обновление";
+        return state;
+    }
     void RefreshList()
     {
         try
@@ -204,8 +213,9 @@ public sealed class Manager : Form
             Directory.CreateDirectory(SettingsDir); File.WriteAllText(Path.Combine(SettingsDir, "game-path.txt"), root);
             int index = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : 0;
             list.BeginUpdate();
-            try { list.Items.Clear(); foreach (Module m in Catalog) { Manifest mf = Load(root, m); var detected = Detect(root, m); string state = mf != null ? (mf.Disabled ? "Отключён" : "Под управлением") : (detected.Count > 0 ? "Установлен вручную" : "Не установлен"); string version = VersionOf(root, m, mf); var row = new ListViewItem(new[] { m.Name, state, version, Available(m) }); row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
+            try { list.Items.Clear(); foreach (Module m in Catalog) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m) }); row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
             finally { list.EndUpdate(); }
+            AppendCommunityRows(root);
             UpdateDetails();
         }
         catch (Exception e)
@@ -218,6 +228,7 @@ public sealed class Manager : Form
     }
     void UpdateDetails()
     {
+        if (ShowCommunitySelection()) return;
         Module m = Selected(); bool usable = m != null && !busy;
         details.Text = m == null ? "Выберите папку игры и модуль в списке. Менеджер различает ручную установку и файлы под своим управлением." : m.Description;
         install.Enabled = usable && m.Id != "unlock"; import.Enabled = usable;
@@ -261,7 +272,7 @@ public sealed class Manager : Form
             SetStatus(status, false); WriteLog(message);
         }
         catch (Exception e) { ShowFailure(m.Name + ": " + operation, e); }
-        finally { busy = false; Cursor = Cursors.Default; RefreshList(); }
+        finally { busy = false; Cursor = Cursors.Default; ModCatalog.ClearDetectionCache(); RefreshList(); var catalogRefresh = ReloadCommunity(false); }
     }
     bool Preview(Dictionary<string, byte[]> files, string title, string confirm = "Подтвердить")
     {
@@ -304,7 +315,7 @@ public sealed class Manager : Form
     static bool KnownTogether(string p){string[] names={"CasualtiesMP.dll","opus.dll","OpusSharp.Core.dll","RefMagic.dll","LiteNetLib.dll","LiteEntitySystem.dll","System.Runtime.CompilerServices.Unsafe.dll","K4os.Compression.LZ4.dll","Multiupdater.dll"};return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)&&names.Contains(Path.GetFileName(p),StringComparer.OrdinalIgnoreCase);}
     static IEnumerable<string> EnumerateSafe(string root,string dir){Under(root,dir.Substring(root.Length+1));foreach(string f in Directory.GetFiles(dir)){Under(root,f.Substring(root.Length+1));yield return f;}foreach(string child in Directory.GetDirectories(dir)){Under(root,child.Substring(root.Length+1)+"/test");foreach(string f in EnumerateSafe(root,child))yield return f;}}
     static string VersionOf(string root,Module m,Manifest mf){IEnumerable<string> paths=mf!=null?mf.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(f=>Under(root,Actual(mf,f))):Detect(root,m).Where(p=>p.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(p=>Under(root,p));foreach(string p in paths.OrderBy(p=>Path.GetFileName(p).Equals(m.Dll,StringComparison.OrdinalIgnoreCase)?0:1)){try{return AssemblyName.GetAssemblyName(p).Version.ToString();}catch{}}return "—";}
-    static string Available(Module m){return m.Resource != null ? BundledVersion(m.Id) + " (в EXE)" : m.Id=="together"?"Проверить fullgame-релиз":"1.0.1, совместимость не подтверждена";}
+    static string Available(Module m){return m.Resource != null ? BundledVersion(m.Id) + " (в EXE)" : m.Id=="together"?(KnownTogetherVersion??"Проверить fullgame-релиз"):"1.0.1, совместимость не подтверждена";}
     static string Source(Module m){return m.Id=="together"?"https://github.com/creaturefeaturelarry/casualties-together/releases":m.Id=="unlock"?"https://www.nexusmods.com/scavprototype/mods/884":"bundled";}
     static string ScanText(string root){return Json.Serialize(Catalog.Select(m=>new{module=m.Id,available=Available(m),source=Source(m),compatibility=m.Id=="unlock"?"unverified":m.Id=="together"?"read release notes":"game 1.0.1",managed=Load(root,m)!=null,disabled=Load(root,m)!=null&&Load(root,m).Disabled,version=VersionOf(root,m,Load(root,m)),detected=Detect(root,m)}).ToArray());}
     // Each operation journals every touched byte, including the manifest. Exceptions restore the exact prior state.
@@ -314,5 +325,5 @@ public sealed class Manager : Form
     static void Remove(string root,Module m){Manifest old=Load(root,m);if(old==null)throw new Exception("Ручная установка не удаляется автоматически.");CheckOwned(root,old);if(m.Id=="bepinex"){string dir=Under(root,"BepInEx/plugins");string patchers=Under(root,"BepInEx/patchers");if((Directory.Exists(dir)&&EnumerateSafe(root,dir).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)))||(Directory.Exists(patchers)&&EnumerateSafe(root,patchers).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase))))throw new Exception("Сначала удалите моды: загрузчик используется plugins или patchers.");}var deletes=old.Files.Select(f=>Actual(old,f)).ToList();deletes.Add(State+m.Id+".json");Transaction(root,new Dictionary<string,byte[]>(),deletes,"remove-"+m.Id);}
     static void Toggle(string root,Module m,bool disabled){if(m.Id=="bepinex")throw new Exception("Общий загрузчик нельзя отключать этим способом.");Manifest old=Load(root,m);if(old==null)throw new Exception("Модуль не управляется менеджером.");CheckOwned(root,old);if(old.Disabled==disabled)return;var writes=new Dictionary<string,byte[]>();var deletes=new List<string>();foreach(Item f in old.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))){string source=Actual(old,f),dest=f.Path+(disabled?".cumm-disabled":"");if(File.Exists(Under(root,dest)))throw new Exception("Путь уже занят: "+dest);writes.Add(dest,File.ReadAllBytes(Under(root,source)));deletes.Add(source);}old.Disabled=disabled;writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(old)));Transaction(root,writes,deletes,(disabled?"disable-":"enable-")+m.Id);}
     static void Adopt(string root,Module m){if(Load(root,m)!=null)throw new Exception("Модуль уже управляется менеджером.");var files=Detect(root,m);if(files.Count==0)throw new Exception("Файлы не найдены.");var mf=new Manifest{Module=m.Id,Version="adopted",Files=files.Select(p=>new Item{Path=p,Hash=Hash(Under(root,p))}).ToList()};foreach(Module other in Catalog.Where(x=>x.Id!=m.Id)){var om=Load(root,other);if(om!=null&&om.Files.Any(f=>files.Contains(f.Path,StringComparer.OrdinalIgnoreCase)))throw new Exception("Некоторые файлы уже принадлежат другому модулю.");}var writes=files.ToDictionary(p=>p,p=>File.ReadAllBytes(Under(root,p)));writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(mf)));Transaction(root,writes,new List<string>(),"adopt-"+m.Id);}
-    string OnlineInstall(string root,Module m){ServicePointManager.SecurityProtocol=(SecurityProtocolType)3072;using(var client=new WebClient()){client.Headers["User-Agent"]="CasualtiesModManager/0.4.0";string json=client.DownloadString("https://api.github.com/repos/creaturefeaturelarry/casualties-together/releases/latest");var release=Json.Deserialize<Dictionary<string,object>>(json);var assets=(System.Collections.ArrayList)release["assets"];var candidates=assets.Cast<Dictionary<string,object>>().Where(a=>((string)a["name"]).EndsWith(".zip",StringComparison.OrdinalIgnoreCase)&&((string)a["name"]).IndexOf("fullgame",StringComparison.OrdinalIgnoreCase)>=0).ToList();if(candidates.Count!=1)throw new Exception("Не удалось однозначно выбрать fullgame ZIP. Откройте релизы и импортируйте нужный ZIP вручную.");var asset=candidates[0];string url=(string)asset["browser_download_url"];if(!url.StartsWith("https://github.com/creaturefeaturelarry/casualties-together/releases/download/",StringComparison.Ordinal))throw new Exception("Неожиданный адрес загрузки.");if(MessageBox.Show(this,"Релиз: "+release["tag_name"]+"\r\nАрхив: "+asset["name"]+"\r\n\r\n"+release["body"]+"\r\n\r\nЗагрузить для предварительного просмотра?","Together: совместимость",MessageBoxButtons.OKCancel)!=DialogResult.OK)return null;byte[] data=client.DownloadData(url);if(asset.ContainsKey("digest")&&asset["digest"]!=null&&((string)asset["digest"]).StartsWith("sha256:")&&Hash(data)!=((string)asset["digest"]).Substring(7))throw new Exception("SHA-256 архива не совпадает с GitHub.");using(var mem=new MemoryStream(data)){var files=ReadZip(mem,m);if(!Preview(files,"Together: установить файлы из "+asset["name"]+"? Встроенный в архив загрузчик пропускается."))return null;Install(root,m,files,(string)release["tag_name"]);return "Установлен / обновлён из GitHub, релиз "+release["tag_name"];}}}
+    string OnlineInstall(string root,Module m){ServicePointManager.SecurityProtocol=(SecurityProtocolType)3072;using(var client=new WebClient()){client.Headers["User-Agent"]="CasualtiesModManager/0.5.0";string json=client.DownloadString("https://api.github.com/repos/creaturefeaturelarry/casualties-together/releases/latest");var release=Json.Deserialize<Dictionary<string,object>>(json);var assets=(System.Collections.ArrayList)release["assets"];var candidates=assets.Cast<Dictionary<string,object>>().Where(a=>((string)a["name"]).EndsWith(".zip",StringComparison.OrdinalIgnoreCase)&&((string)a["name"]).IndexOf("fullgame",StringComparison.OrdinalIgnoreCase)>=0).ToList();if(candidates.Count!=1)throw new Exception("Не удалось однозначно выбрать fullgame ZIP. Откройте релизы и импортируйте нужный ZIP вручную.");var asset=candidates[0];string url=(string)asset["browser_download_url"];if(!url.StartsWith("https://github.com/creaturefeaturelarry/casualties-together/releases/download/",StringComparison.Ordinal))throw new Exception("Неожиданный адрес загрузки.");if(MessageBox.Show(this,"Релиз: "+release["tag_name"]+"\r\nАрхив: "+asset["name"]+"\r\n\r\n"+release["body"]+"\r\n\r\nЗагрузить для предварительного просмотра?","Together: совместимость",MessageBoxButtons.OKCancel)!=DialogResult.OK)return null;byte[] data=client.DownloadData(url);if(asset.ContainsKey("digest")&&asset["digest"]!=null&&((string)asset["digest"]).StartsWith("sha256:")&&Hash(data)!=((string)asset["digest"]).Substring(7))throw new Exception("SHA-256 архива не совпадает с GitHub.");using(var mem=new MemoryStream(data)){var files=ReadZip(mem,m);if(!Preview(files,"Together: установить файлы из "+asset["name"]+"? Встроенный в архив загрузчик пропускается."))return null;Install(root,m,files,(string)release["tag_name"]);return "Установлен / обновлён из GitHub, релиз "+release["tag_name"];}}}
 }
