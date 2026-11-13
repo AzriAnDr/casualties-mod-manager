@@ -1,0 +1,8 @@
+build/
+bin/
+obj/
+packages/
+__pycache__/
+*.exe
+*.dll
+*.pdb

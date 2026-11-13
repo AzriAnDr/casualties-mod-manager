@@ -1,0 +1,25 @@
+Casualties: Unknown — Orsoniks / Oro Interactive.
+
+Русский перевод сообщества:
+UCRD (Axawer), Vinterhelm, SoberFurry, Captain_Kirk, Batya_v_khati,
+Voprositelnii, Strag Az, Untitled9223, Bogtogus, Spectator39.
+Источник: https://github.com/Orsoniks/scavgame-locale
+Файл: release/ru-RU.json, исходная версия 1.0, обновление 10.11.2026.
+Полное исходное авторство сохранено в description языкового файла.
+Локальная адаптация справочника: 6 исправлений, указанных в assets/ru-corrections.json.
+Исходная лицензия перевода приложена как TRANSLATION-LICENSE.txt.
+
+BepInEx 5.4.23.5 — BepInEx contributors, MIT.
+https://github.com/BepInEx/BepInEx
+Загрузчик распространяется неизменённым официальным архивом в менеджере.
+Исходники соответствующей версии: https://github.com/BepInEx/BepInEx/tree/v5.4.23.5
+Лицензия BepInEx приложена как BEPINEX-LICENSE.txt.
+Исходники BepInEx 5.4.23.5 приложены отдельным официальным ZIP.
+Зависимости и их исходники перечислены в проектах этого репозитория.
+
+Полный русский перевод 457 языковых записей Together 5.5.0 создан
+в этом чате с помощью Codex; оригинальные тексты Together принадлежат
+его авторам. TOGETHER-LICENSE.txt содержит лицензию исходного проекта.
+
+Исходный код справочника, русификатора и менеджера создан в этом чате с помощью Codex.
+Он не принадлежит авторам перевода или разработчику игры.
