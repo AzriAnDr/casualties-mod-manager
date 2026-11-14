@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -19,17 +19,21 @@ public static class CommunityInstaller
     public sealed class OwnedFile { public string Path; public string Hash; }
     public sealed class InstalledRecord
     {
-        public string Id, Name, Version;
+        public string Id, Name, Version, VersionSource, ArchiveHash;
+        public bool CatalogArchiveUnverified;
         public bool Disabled;
         public List<OwnedFile> Files = new List<OwnedFile>();
     }
     public sealed class Plan
     {
         public Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        public string Summary, ArchiveHash, ModuleId;
+        public string Summary, ArchiveHash, ModuleId, PluginVersion;
+        public bool CatalogArchiveUnverified;
         public List<string> Warnings = new List<string>();
         internal string Seal;
     }
+    public sealed class ArchiveHashMismatchException : InvalidOperationException
+    { public ArchiveHashMismatchException() : base("SHA-256 отличается от записи каталога. Для другого выпуска нужен ручной просмотр архива.") {} }
     public sealed class Result { public string BackupPath; public int FileCount; }
 #if COMMUNITY_TESTS
     internal static Action<string> BeforeWrite;
@@ -110,11 +114,11 @@ public static class CommunityInstaller
     }
     static string Seal(Plan plan)
     {
-        var text = new StringBuilder(plan.ModuleId + "\n" + plan.ArchiveHash + "\n");
+        var text = new StringBuilder(plan.ModuleId + "\n" + plan.ArchiveHash + "\n" + plan.PluginVersion + "\n" + plan.CatalogArchiveUnverified + "\n");
         foreach (var p in plan.Files.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)) text.Append(p.Key).Append(':').Append(Hash(p.Value)).Append('\n');
         return Hash(Encoding.UTF8.GetBytes(text.ToString()));
     }
-    public static Plan Preview(string gameRoot, string moduleId, string zipPath, string expectedArchiveSha256, IEnumerable<string> expectedDllNames)
+    public static Plan Preview(string gameRoot, string moduleId, string zipPath, string expectedArchiveSha256, IEnumerable<string> expectedDllNames, bool reviewDifferentArchive = false, IEnumerable<string> expectedPluginGuids = null)
     {
         string root = Root(gameRoot, false); Id(moduleId);
         var names = new HashSet<string>(expectedDllNames ?? new string[0], StringComparer.OrdinalIgnoreCase);
@@ -127,7 +131,12 @@ public static class CommunityInstaller
         if (!String.IsNullOrWhiteSpace(expectedArchiveSha256))
         {
             string h = expectedArchiveSha256.Replace("sha256:", "").Trim();
-            if (!Regex.IsMatch(h, "^[a-fA-F0-9]{64}$") || !String.Equals(h, plan.ArchiveHash, StringComparison.OrdinalIgnoreCase)) throw Fail("SHA-256 не совпадает. Выберите файл именно этой записи каталога.");
+            if (!Regex.IsMatch(h, "^[a-fA-F0-9]{64}$")) throw Fail("Некорректный SHA-256 каталога.");
+            if (!String.Equals(h, plan.ArchiveHash, StringComparison.OrdinalIgnoreCase)) {
+                if(!reviewDifferentArchive)throw new ArchiveHashMismatchException();
+                plan.CatalogArchiveUnverified=true;
+                plan.Warnings.Add("ВНИМАНИЕ: SHA-256 НЕ СОВПАДАЕТ с каталогом. Это другой или изменённый архив; его подлинность не подтверждена. Продолжайте только если доверяете источнику.");
+            }
         }
         else plan.Warnings.Add("Каталог не содержит SHA-256: подлинность загружаемого файла не подтверждена.");
         if (IsDll(zipPath))
@@ -197,6 +206,14 @@ public static class CommunityInstaller
         }
         if (!plan.Files.Any(p => names.Contains(Path.GetFileName(p.Key)))) throw Fail("В архиве не найдена основная DLL выбранного мода: " + String.Join(", ", names));
         if (plan.Files.Count == 0) throw Fail("Архив пуст.");
+        if(plan.CatalogArchiveUnverified) {
+            var guids=new HashSet<string>(expectedPluginGuids??new string[0],StringComparer.Ordinal);
+            var declarations=plan.Files.Where(p=>IsDll(p.Key)).SelectMany(p=>ModCatalog.InspectPlugins(p.Value)).Where(p=>guids.Contains(p.Guid)).ToList();
+            if(guids.Count==0||declarations.Count==0)throw Fail("Другой архив не содержит ожидаемый GUID плагина выбранного мода. Его нельзя связать с этой записью каталога.");
+            var versions=declarations.Select(p=>p.Version).Distinct(StringComparer.Ordinal).ToArray();
+            if(versions.Length==1)plan.PluginVersion=versions[0];
+            plan.Warnings.Add("Совпала декларация GUID плагина (это не проверка подлинности). Версия плагина: "+(plan.PluginVersion??"несколько версий")+".");
+        }
         plan.Warnings.Add("Код стороннего мода запустится при следующем запуске игры. Совместимость зависит от автора мода.");
         plan.Summary = "Файлов: " + plan.Files.Count + "; SHA-256: " + plan.ArchiveHash;
         plan.Seal = Seal(plan); return plan;
@@ -280,7 +297,7 @@ public static class CommunityInstaller
             var previous = new HashSet<string>(old == null ? new string[0] : old.Files.Select(f => Actual(old, f)), StringComparer.OrdinalIgnoreCase);
             var other = OtherOwned(root, plan.ModuleId);
             if (old != null && old.Files.Any(f => other.Contains(f.Path) || other.Contains(Actual(old, f)))) throw Fail("Конфликт владельцев ранее установленных файлов.");
-            var next = new InstalledRecord { Id = plan.ModuleId, Name = displayName, Version = version, Disabled = old != null && old.Disabled };
+            var next = new InstalledRecord { Id = plan.ModuleId, Name = displayName, Version = plan.CatalogArchiveUnverified ? plan.PluginVersion : version, VersionSource = plan.CatalogArchiveUnverified ? "plugin-metadata" : "catalog-archive", ArchiveHash = plan.ArchiveHash, CatalogArchiveUnverified = plan.CatalogArchiveUnverified, Disabled = old != null && old.Disabled };
             var writes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in plan.Files) { PluginPath(p.Key); next.Files.Add(new OwnedFile { Path = p.Key, Hash = Hash(p.Value) }); }
             foreach (var f in next.Files) { string dest = Actual(next, f); EnsureFree(root, dest, previous, other); writes.Add(dest, plan.Files[f.Path]); }
@@ -310,10 +327,11 @@ public static class CommunityInstaller
         using (Lock(root))
         {
             GuardProcesses(root);
-            if (Load(root, moduleId) != null) throw Fail("Мод уже управляется менеджером.");
+            var previousRecord=Load(root,moduleId);
+            if(previousRecord!=null && previousRecord.Files.Any(f=>File.Exists(Under(root,Actual(previousRecord,f)))||Directory.Exists(Under(root,Actual(previousRecord,f)))))throw Fail("Мод уже управляется менеджером.");
             var paths = (relativeFiles ?? new string[0]).ToList();
             if (paths.Count == 0 || paths.Count > 10000 || paths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != paths.Count) throw Fail("Выберите неповторяющийся список DLL для принятия под управление.");
-            var other = OtherOwned(root, moduleId); var r = new InstalledRecord { Id = moduleId, Name = displayName, Version = version };
+            var other = OtherOwned(root, moduleId); var r = new InstalledRecord { Id = moduleId, Name = displayName, Version = version, VersionSource = "plugin-metadata" };
             var writes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             foreach (string path in paths)
             {

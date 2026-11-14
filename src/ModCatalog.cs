@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
+using Mono.Cecil;
 
 // Descriptive metadata only: no plugin or script is ever loaded for execution.
 public static class ModCatalog
@@ -31,6 +32,14 @@ public static class ModCatalog
         public List<string> Files = new List<string>();
         public Dictionary<string,string> VersionsByFile = Map(), HashesByFile = Map();
     }
+    // These are declarations in PE metadata, not proof that a DLL is safe to execute.
+    public sealed class PluginMetadata { public string Guid, Name, Version, TypeName; }
+    public sealed class ManualPlugin
+    {
+        public string RelativePath, Sha256;
+        public bool Disabled;
+        public List<PluginMetadata> Plugins = new List<PluginMetadata>();
+    }
     public enum VersionComparison { Older, Equal, Newer, Unknown, DifferentChannel }
     public enum UpdateState { UpdateAvailable, Current, InstalledNewer, Unknown, DifferentChannel, NotInstalled }
     public static bool IsStale { get; private set; }
@@ -45,9 +54,10 @@ public static class ModCatalog
     static readonly string CacheRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CasualtiesModManager","catalog");
     static JavaScriptSerializer Json { get { return new JavaScriptSerializer { MaxJsonLength=Limit, RecursionLimit=64 }; } }
     static Dictionary<string,HashSet<string>> HashOwners = new Dictionary<string,HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+    static Dictionary<string,HashSet<string>> GuidOwners = new Dictionary<string,HashSet<string>>(StringComparer.Ordinal);
     static readonly Dictionary<string,Scan> Scans = new Dictionary<string,Scan>(StringComparer.OrdinalIgnoreCase);
     sealed class CacheMeta { public string Source, ETag, LastModified, FetchedUtc; }
-    sealed class ScanFile { public string Relative, Name, Hash, Version; }
+    sealed class ScanFile { public string Relative, Name, Hash, Version; public List<PluginMetadata> Plugins = new List<PluginMetadata>(); }
     sealed class Scan { public DateTime Utc; public List<ScanFile> Files=new List<ScanFile>(); public string Error; }
     static Dictionary<string,string> Map() { return new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase); }
 
@@ -160,7 +170,8 @@ public static class ModCatalog
     static void IndexHashes(IEnumerable<Entry>entries)
     {
         var index=new Dictionary<string,HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach(Entry e in entries)foreach(string hash in e.DllSha256s.Values){HashSet<string>owners;if(!index.TryGetValue(hash,out owners))index[hash]=owners=new HashSet<string>(StringComparer.OrdinalIgnoreCase);owners.Add(e.Id);}HashOwners=index;
+        var guids=new Dictionary<string,HashSet<string>>(StringComparer.Ordinal);
+        foreach(Entry e in entries){foreach(string hash in e.DllSha256s.Values){HashSet<string>owners;if(!index.TryGetValue(hash,out owners))index[hash]=owners=new HashSet<string>(StringComparer.OrdinalIgnoreCase);owners.Add(e.Id);}foreach(string guid in e.BepinexPlugins.Keys){HashSet<string>owners;if(!guids.TryGetValue(guid,out owners))guids[guid]=owners=new HashSet<string>(StringComparer.OrdinalIgnoreCase);owners.Add(e.Id);}}HashOwners=index;GuidOwners=guids;
     }
     public static string NexusUrl(Entry e){return e!=null&&e.NexusModId>0&&e.NexusGameDomain=="scavprototype"?"https://www.nexusmods.com/scavprototype/mods/"+e.NexusModId.ToString(CultureInfo.InvariantCulture):null;}
     static string NormalizeTag(string tag)
@@ -209,6 +220,53 @@ public static class ModCatalog
         text=clean.ToString().Replace("\r\n","\n").Replace('\r','\n');text=Regex.Replace(text,@"[ \t]+"," ");text=Regex.Replace(text,@"\n[ \t]*\n(?:[ \t]*\n)+","\n\n").Trim();return text.Length<=maxLength?text:text.Substring(0,Math.Max(0,maxLength-1))+"…";
     }
     public static void ClearDetectionCache(){lock(ScanGate)Scans.Clear();}
+    sealed class NoAssemblyResolver : IAssemblyResolver
+    {
+        public AssemblyDefinition Resolve(AssemblyNameReference name) { throw new InvalidDataException("Внешние сборки не разрешаются."); }
+        public AssemblyDefinition Resolve(AssemblyNameReference name,ReaderParameters parameters) { throw new InvalidDataException("Внешние сборки не разрешаются."); }
+        public void Dispose() { }
+    }
+    public static List<PluginMetadata> InspectPlugins(byte[] bytes)
+    {
+        MetadataRuntime.Initialize();
+        return InspectPluginImage(bytes);
+    }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static List<PluginMetadata> InspectPluginImage(byte[] bytes)
+    {
+        if(bytes==null)throw new ArgumentNullException("bytes");
+        if(bytes.Length>128*1024*1024)throw new InvalidDataException("DLL превышает128МиБ.");
+        var result=new List<PluginMetadata>();
+        // Deferred reading avoids interpreting unrelated custom attributes. The resolver cannot
+        // touch disk or resolve mod dependencies; only the three literal string arguments are read.
+        try {
+            using(var input=new MemoryStream(bytes,false))using(var resolver=new NoAssemblyResolver())
+            using(var module=ModuleDefinition.ReadModule(input,new ReaderParameters{ReadingMode=ReadingMode.Deferred,ReadSymbols=false,InMemory=true,AssemblyResolver=resolver})) {
+                var pending=new Stack<TypeDefinition>(module.Types);int count=0;
+                while(pending.Count>0) {
+                    var type=pending.Pop();if(++count>10000||pending.Count>10000)throw new InvalidDataException("Слишком много типов DLL.");
+                    if(type.NestedTypes.Count>10000||type.CustomAttributes.Count>256)throw new InvalidDataException("Слишком много записей метаданных DLL.");
+                    foreach(var child in type.NestedTypes)pending.Push(child);
+                    foreach(var attr in type.CustomAttributes) {
+                        var scope=attr.AttributeType.Scope as AssemblyNameReference;
+                        if(attr.AttributeType.FullName!="BepInEx.BepInPlugin"||scope==null||scope.Name!="BepInEx")continue;
+                        var ctor=attr.Constructor;
+                        if(ctor.Name!=".ctor"||!ctor.HasThis||ctor.Parameters.Count!=3||ctor.Parameters.Any(p=>p.ParameterType.FullName!="System.String"))continue;
+                        var args=attr.ConstructorArguments;if(args.Count!=3||args.Any(a=>a.Type.FullName!="System.String"||!(a.Value is string)))continue;
+                        string guid=(string)args[0].Value,name=(string)args[1].Value,version=(string)args[2].Value;
+                        if(!Regex.IsMatch(guid,@"^[A-Za-z0-9._-]{1,256}$")||String.IsNullOrWhiteSpace(name)||name.Length>512||name.Any(Char.IsControl)||String.IsNullOrWhiteSpace(version)||version.Length>128||version.Any(Char.IsControl))continue;
+                        if(result.Count>=128)throw new InvalidDataException("Слишком много плагинов в DLL.");
+                        result.Add(new PluginMetadata{Guid=guid,Name=name,Version=version,TypeName=type.FullName});
+                    }
+                }
+            }
+        } catch(BadImageFormatException) { return new List<PluginMetadata>(); }
+        return result;
+    }
+    public static List<ManualPlugin> ListManualPlugins(string root)
+    {
+        root=GameRoot(root);return GetScan(root).Files.Where(f=>f.Relative.StartsWith("BepInEx/plugins/",StringComparison.OrdinalIgnoreCase)&&f.Plugins.Count>0).Select(f=>new ManualPlugin{RelativePath=f.Relative,Sha256=f.Hash,Disabled=f.Relative.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase),Plugins=f.Plugins.Select(p=>new PluginMetadata{Guid=p.Guid,Name=p.Name,Version=p.Version,TypeName=p.TypeName}).ToList()}).ToList();
+    }
     public static InstalledInfo Detect(string root,Entry entry)
     {
         if(entry==null)throw new ArgumentNullException("entry");root=GameRoot(root);Scan scan=GetScan(root);InstalledInfo managed=ReadManaged(root,entry,scan);if(managed!=null)return managed;
@@ -216,8 +274,14 @@ public static class ModCatalog
         var unique=exact.Where(f=>{HashSet<string>owners;return HashOwners.TryGetValue(f.Hash,out owners)&&owners.Count==1&&owners.Contains(entry.Id);}).ToList();
         if(unique.Count>0){result.Installed=true;result.Confidence="exact-sha256";result.Files=unique.Select(f=>f.Relative).ToList();result.Partial=PrimaryHashes(entry).Any(pair=>!exact.Any(f=>String.Equals(f.Hash,pair.Value,StringComparison.OrdinalIgnoreCase)&&String.Equals(f.Name,pair.Key,StringComparison.OrdinalIgnoreCase)));result.MatchReason="Точное совпадение SHA-256 основных DLL"+(result.Partial?"; часть основных DLL каталога не найдена":"");FillVersions(result,unique);}
         else{
+            var declared=scan.Files.Where(f=>f.Relative.StartsWith("BepInEx/plugins/",StringComparison.OrdinalIgnoreCase)&&f.Plugins.Any(p=>entry.BepinexPlugins.Keys.Contains(p.Guid,StringComparer.Ordinal))).ToList();
+            bool guidConflict=declared.SelectMany(f=>f.Plugins).Where(p=>entry.BepinexPlugins.Keys.Contains(p.Guid,StringComparer.Ordinal)).GroupBy(p=>p.Guid,StringComparer.Ordinal).Any(g=>g.Count()!=1||!GuidOwners.ContainsKey(g.Key)||GuidOwners[g.Key].Count!=1||!GuidOwners[g.Key].Contains(entry.Id));
+            if(declared.Count>0&&!guidConflict){result.Installed=true;result.Confidence="plugin-guid";result.Files=declared.Select(f=>f.Relative).ToList();result.Disabled=declared.All(f=>f.Relative.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase));result.Partial=entry.BepinexPlugins.Keys.Any(g=>!declared.Any(f=>f.Plugins.Any(p=>p.Guid==g)));result.MatchReason="GUID BepInPlugin совпадает с каталогом; версия указана в метаданных DLL, состав архива не проверен";FillVersions(result,declared);var versions=declared.SelectMany(f=>f.Plugins).Where(p=>entry.BepinexPlugins.Keys.Contains(p.Guid,StringComparer.Ordinal)).Select(p=>p.Version).Distinct(StringComparer.Ordinal).ToArray();result.Version=versions.Length==1?versions[0]:null;}
+            else {
             var candidates=scan.Files.Where(f=>entry.DllNames.Contains(f.Name,StringComparer.OrdinalIgnoreCase)).ToList();result.Files=candidates.Select(f=>f.Relative).ToList();
-            if(candidates.Count>0||exact.Count>0){result.Ambiguous=true;result.Confidence=exact.Count>0?"shared-dependency-sha256":"filename-only";result.MatchReason=exact.Count>0?"Найдена общая DLL: её SHA-256 встречается у нескольких модов":"Совпало только имя DLL; принадлежность моду не подтверждена";FillVersions(result,candidates);}else result.MatchReason="Подтверждённые файлы мода не найдены";
+            if(guidConflict){result.Ambiguous=true;result.Confidence="ambiguous-plugin-guid";result.Files=declared.Select(f=>f.Relative).ToList();result.MatchReason="GUID плагина повторяется в установке или каталоге; принадлежность неоднозначна";}
+            else if(candidates.Count>0||exact.Count>0){result.Ambiguous=true;result.Confidence=exact.Count>0?"shared-dependency-sha256":"filename-only";result.MatchReason=exact.Count>0?"Найдена общая DLL: её SHA-256 встречается у нескольких модов":"Совпало только имя DLL; принадлежность моду не подтверждена";FillVersions(result,candidates);}else result.MatchReason="Подтверждённые файлы мода не найдены";
+            }
         }
         if(!String.IsNullOrEmpty(scan.Error))result.MatchReason+=". Сканирование неполное: "+scan.Error;return result;
     }
@@ -225,14 +289,14 @@ public static class ModCatalog
     {
         try{
             string file=Under(root,State+"community/"+e.Id+".json");if(!File.Exists(file))return null;var d=Json.Deserialize<Dictionary<string,object>>(ReadBounded(file,1024*1024));object id;if(d==null||!d.TryGetValue("Id",out id)||!(id is string)||(string)id!=e.Id)return null;
-            object flag;bool disabled=d.TryGetValue("Disabled",out flag)&&flag is bool&&(bool)flag;var info=new InstalledInfo{Managed=true,Disabled=disabled,Confidence="managed-manifest",ArchiveVersion=Text(d,"Version",128)};object files;if(!d.TryGetValue("Files",out files)||!(files is IEnumerable))return null;
+            object flag;bool disabled=d.TryGetValue("Disabled",out flag)&&flag is bool&&(bool)flag;var info=new InstalledInfo{Managed=true,Disabled=disabled,Confidence=Text(d,"VersionSource",128)=="plugin-metadata"?"plugin-guid":"managed-manifest",ArchiveVersion=Text(d,"VersionSource",128)=="plugin-metadata"?null:Text(d,"Version",128)};object files;if(!d.TryGetValue("Files",out files)||!(files is IEnumerable))return null;
             var found=new List<ScanFile>();int count=0;bool anyPresent=false;
             foreach(object raw in (IEnumerable)files){
                 if(++count>4096)throw new InvalidDataException("Слишком много файлов манифеста.");var record=raw as Dictionary<string,object>;if(record==null)return null;string relative=Text(record,"Path",1024),expected=Text(record,"Hash",128);if(String.IsNullOrWhiteSpace(relative)||!IsHash(expected))return null;
                 Under(root,relative);relative=relative.Replace('\\','/');if(!relative.StartsWith("BepInEx/plugins/",StringComparison.OrdinalIgnoreCase)&&!relative.StartsWith("BepInEx/patchers/",StringComparison.OrdinalIgnoreCase))continue;bool dll=relative.EndsWith(".dll",StringComparison.OrdinalIgnoreCase);if(File.Exists(Under(root,relative+(disabled&&dll?".cumm-disabled":""))))anyPresent=true;else info.Ambiguous=true;if(!dll)continue;
                 string actual=relative+(disabled?".cumm-disabled":"");ScanFile match=scan.Files.FirstOrDefault(f=>String.Equals(f.Relative,actual,StringComparison.OrdinalIgnoreCase));info.Files.Add(actual);if(match==null||!String.Equals(match.Hash,expected,StringComparison.OrdinalIgnoreCase))info.Ambiguous=true;if(match!=null)found.Add(match);
             }
-            if(!anyPresent){info.Ambiguous=false;info.ArchiveVersion=null;info.Managed=false;info.MatchReason="Файлы удалены вручную";return info;}info.Installed=found.Count>0;info.Partial=info.Ambiguous;info.MatchReason=info.Ambiguous?"Управляемая установка: DLL отсутствуют или изменены":"Принадлежность подтверждена манифестом менеджера и SHA-256";FillVersions(info,found);return info;
+            if(!anyPresent)return null;info.Installed=found.Count>0;info.Partial=info.Ambiguous;info.MatchReason=info.Ambiguous?"Управляемая установка: DLL отсутствуют или изменены":"Принадлежность подтверждена манифестом менеджера и SHA-256";FillVersions(info,found);return info;
         }catch{return null;}
     }
     static void FillVersions(InstalledInfo info,IEnumerable<ScanFile>files){foreach(ScanFile f in files){if(IsHash(f.Hash))info.HashesByFile[f.Relative]=f.Hash;if(f.Version!=null)info.VersionsByFile[f.Relative]=f.Version;}string[] versions=info.VersionsByFile.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();info.Version=versions.Length==1?versions[0]:null;}
@@ -257,11 +321,13 @@ public static class ModCatalog
                         bool disabled=path.EndsWith(".dll.cumm-disabled",StringComparison.OrdinalIgnoreCase);if(!path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)&&!disabled)continue;
                         if(++count>10000)throw new IOException("Достигнут предел10000 DLL.");var before=new FileInfo(path);if(before.Length>128L*1024*1024){result.Error="пропущены DLL больше128МиБ";continue;}bytes+=before.Length;if(bytes>512L*1024*1024)throw new IOException("Достигнут предел чтения512МиБ.");
                         try{
-                            string hash;using(var sha=SHA256.Create())using(var input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))hash=BitConverter.ToString(sha.ComputeHash(input)).Replace("-","").ToLowerInvariant();
+                            byte[] image;using(var input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))using(var memory=new MemoryStream()){byte[] buffer=new byte[32768];int read;while((read=input.Read(buffer,0,buffer.Length))>0){if(memory.Length+read>128L*1024*1024||memory.Length+read>before.Length)throw new IOException("DLL изменилась во время чтения.");memory.Write(buffer,0,read);}image=memory.ToArray();}
+                            string hash;using(var sha=SHA256.Create())hash=BitConverter.ToString(sha.ComputeHash(image)).Replace("-","").ToLowerInvariant();
                             var after=new FileInfo(path);if(after.Length!=before.Length||after.LastWriteTimeUtc!=before.LastWriteTimeUtc){result.Error="DLL изменялись во время чтения";continue;}
                             string version=null;try{version=AssemblyName.GetAssemblyName(path).Version.ToString();}catch{}
+                            var plugins=new List<PluginMetadata>();try{plugins=InspectPlugins(image);}catch{}
                             string name=Path.GetFileName(path);if(disabled)name=name.Substring(0,name.Length-".cumm-disabled".Length);
-                            result.Files.Add(new ScanFile{Relative=path.Substring(root.Length+1).Replace('\\','/'),Name=name,Hash=hash,Version=version});
+                            result.Files.Add(new ScanFile{Relative=path.Substring(root.Length+1).Replace('\\','/'),Name=name,Hash=hash,Version=version,Plugins=plugins});
                         }catch(Exception e){result.Error="не все DLL доступны: "+e.Message;}
                     }
                 }catch(Exception e){result.Error=e.Message;}
@@ -280,6 +346,7 @@ public static class ModCatalog
         // Require every uniquely owned primary hash and its filename; shared dependencies prove nothing.
         var primary=PrimaryHashes(entry);
         if(primary.Count>0&&primary.All(expected=>info.HashesByFile.Any(actual=>String.Equals(DllLeaf(actual.Key),expected.Key,StringComparison.OrdinalIgnoreCase)&&String.Equals(actual.Value,expected.Value,StringComparison.OrdinalIgnoreCase))))return UpdateState.Current;
+        if(info.Confidence=="plugin-guid")return UpdateState.Unknown;
         bool older=false,newer=false,compared=false,unknown=false;
         foreach(var actual in info.VersionsByFile){
             string name=DllLeaf(actual.Key);string available;

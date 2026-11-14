@@ -1,0 +1,13 @@
+Launcher0.5.6 / Russian0.2.12 / game1.0.2
+EXE SHA256: be90c5f6b87be1c507419bdf6740175cceb75e0653e6748af90938f579884f1d
+Russian ZIP SHA256: a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1
+
+Production builds:0warnings,0errors (CuRussian,CuWiki,manager).
+29 installer regressions +25 reviewed-archive/metadata/seal checks PASS in isolated roots.
+17 metadata detection checks PASS;8 extracted inventory-method checks PASS using real installed DLLs read-only.
+116 real-Harmony model assertions PASS for ReadyButtonText localization: exact counters, original invocation/state, Russian/English, host/client models and malformed templates.
+Final self-contained EXE InspectPlugins reads actual Afterdark declaration0.2.3 without loose Cecil DLL; embedded library identity/hash pinned. No third-party plugin executed.
+Built-in Russian ZIP matches independent module output byte-for-byte; font/network sources unchanged from0.2.11.
+Defender custom scans completed for final EXE and Russian ZIP; no matching threat detections. Definitions1.463.302.0; AntivirusEnabled=True; RealTimeProtectionEnabled=True. This is a local scan result, not a new Microsoft submission verdict.
+
+No game or visible manager launch, no installed mod/config/save writes. UI checks use extracted methods; Together checks use a synthetic exact producer and real Harmony, not a live multiplayer session. In-game labels and manual import confirmation need user gameplay/UI validation. Font success was confirmed by the user for0.2.11, not retested here.

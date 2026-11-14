@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using BepInEx;
@@ -6,7 +6,7 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
-[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.11")]
+[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.12")]
 [BepInDependency("CasualtiesMP", BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class CuRussian : BaseUnityPlugin
 {
@@ -33,6 +33,7 @@ public sealed class CuRussian : BaseUnityPlugin
                 if (shortKey.StartsWith("gameset_")) russian.other["gameset" + shortKey.Substring("gameset_".Length)] = pair.Value;
             }
             harmony = new Harmony("local.casualties.russian");
+            try { TogetherReadyLabels.Enable(harmony, Logger, russian); } catch (Exception readyError) { Logger.LogWarning("Together ready labels unavailable: " + readyError.Message); }
             var patch = new HarmonyMethod(typeof(CuRussian), "Apply"); patch.priority = Priority.Last;
             harmony.Patch(AccessTools.Method(typeof(Locale), "LoadLanguage"), postfix: patch);
             var tooltipType = AccessTools.TypeByName("Together.UIBullshit");

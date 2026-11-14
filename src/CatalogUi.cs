@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
@@ -32,7 +32,7 @@ public sealed partial class Manager
     private System.Windows.Forms.Timer searchTimer, inboxTimer;
     private bool loadingCommunity, scanningInbox, compactCatalogDetails;
     private readonly Dictionary<string,ArchiveInbox.Item> inboxCache = new Dictionary<string,ArchiveInbox.Item>(StringComparer.OrdinalIgnoreCase);
-    private sealed class CommunitySelection { public CommunityInstaller.InstalledRecord Record; public ModCatalog.Entry Entry; public ModCatalog.InstalledInfo Info; }
+    private sealed class CommunitySelection { public CommunityInstaller.InstalledRecord Record; public ModCatalog.Entry Entry; public ModCatalog.InstalledInfo Info; public ModCatalog.ManualPlugin Manual; }
     private sealed class DarkTabs : TabControl
     {
         public DarkTabs(){SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
@@ -210,9 +210,9 @@ public sealed partial class Manager
     }
     private bool IsBuiltinEntry(ModCatalog.Entry e){return e.DllNames!=null&&e.DllNames.Any(n=>new[]{"CasualtiesMP.dll","CuRussian.dll","CuWiki.dll"}.Contains(Path.GetFileName(n),StringComparer.OrdinalIgnoreCase));}
     private void SelectCatalogEntry(string id){mainTabs.SelectedIndex=1;catalogSearch.Text="";installedOnly.Checked=updatesOnly.Checked=false;var entry=communityEntries.FirstOrDefault(e=>e.Id==id);if(entry!=null&&entry.ContainsAdultContent==true)showAdult.Checked=true;if(entry!=null&&!ModCatalog.MatchesTags(entry,selectedCatalogTags))selectedCatalogTags.Clear();RenderCatalog();foreach(ListViewItem row in catalogList.Items)if(((ModCatalog.Entry)row.Tag).Id==id){row.Selected=true;row.EnsureVisible();break;}}
-    private void ChooseAndInstall(ModCatalog.Entry e){if(busy)return;using(var dialog=new OpenFileDialog{Filter="ZIP-архив|*.zip",Title="Архив для «"+e.Name+"»"})if(dialog.ShowDialog(this)==DialogResult.OK)InstallCommunityZip(e,dialog.FileName,e.ArchiveSha256,e.Version);}
+    private void ChooseAndInstall(ModCatalog.Entry e){if(busy)return;using(var dialog=new OpenFileDialog{Filter="ZIP-архив|*.zip",Title="Архив для «"+e.Name+"»"})if(dialog.ShowDialog(this)==DialogResult.OK)InstallCommunityZip(e,dialog.FileName,e.ArchiveSha256,e.Version,true);}
     private IEnumerable<string> PrimaryDlls(ModCatalog.Entry e){return e.DllVersions!=null&&e.DllVersions.Count>0?e.DllVersions.Keys:(IEnumerable<string>)(e.DllNames??new List<string>());}
-    private void InstallCommunityZip(ModCatalog.Entry e,string file,string hash,string version)
+    private void InstallCommunityZip(ModCatalog.Entry e,string file,string hash,string version,bool manualReview=false)
     {
         if(busy)return;
         if(IsBuiltinEntry(e)){MessageBox.Show(this,"Для этого мода используйте его основную карточку во вкладке «Мои моды». Это сохраняет выбранный источник и управление файлами.","Основной мод");return;}
@@ -220,9 +220,14 @@ public sealed partial class Manager
         {
             busy=true;UpdateDetails();ShowCatalogDetails();string root=Validate(game.Text,true);
             if(!EnsureLoaderForCommunity(root,false))return;
-            var plan=CommunityInstaller.Preview(root,e.Id,file,hash,PrimaryDlls(e));
+            CommunityInstaller.Plan plan;
+            try { plan=CommunityInstaller.Preview(root,e.Id,file,hash,PrimaryDlls(e)); }
+            catch(CommunityInstaller.ArchiveHashMismatchException) {
+                if(!manualReview)throw;
+                plan=CommunityInstaller.Preview(root,e.Id,file,hash,PrimaryDlls(e),true,e.BepinexPlugins.Keys);
+            }
             string warning=plan.Warnings.Count>0?"\r\n\r\n"+String.Join("\r\n",plan.Warnings.ToArray()):"";
-            if(!Preview(plan.Files,e.Name+"\r\n"+plan.Summary+"\r\nСовместимость с игрой и Together проверяйте у автора."+warning,"Установить файлы")){SetStatus(e.Name+": установка отменена.",false);return;}
+            if(!Preview(plan.Files,e.Name+"\r\n"+plan.Summary+"\r\nСовместимость с игрой и Together проверяйте у автора."+warning,plan.CatalogArchiveUnverified?"Установить непроверенный архив":"Установить файлы")){SetStatus(e.Name+": установка отменена.",false);return;}
             var result=CommunityInstaller.Install(root,plan,e.Name,version);
             SetStatus(e.Name+": установлен / обновлён, "+result.FileCount+" файлов. Резервная копия сохранена.",false);WriteLog(e.Name+": установка из "+Path.GetFileName(file)+"; backup: "+result.BackupPath);ModCatalog.ClearDetectionCache();
         }
@@ -244,22 +249,35 @@ public sealed partial class Manager
     private void AppendCommunityRows(string root)
     {
         if(communityActions==null)return;
-        managedCommunity=CommunityInstaller.ListInstalled(root);var ids=new HashSet<string>();
+        managedCommunity=CommunityInstaller.ListInstalled(root);var ids=new HashSet<string>();var represented=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(ListViewItem row in list.Items){var module=row.Tag as Module;if(module!=null)foreach(string path in Detect(root,module))represented.Add(InventoryPath(path));}
         foreach(var record in managedCommunity)
         {
-            ids.Add(record.Id);int present=CommunityInstaller.CountPresent(root,record);
+            int present=CommunityInstaller.CountPresent(root,record);
             if(present==0)continue;
+            ids.Add(record.Id);foreach(var file in record.Files)represented.Add(InventoryPath(file.Path));
             var entry=communityEntries.FirstOrDefault(e=>e.Id==record.Id);ModCatalog.InstalledInfo info=null;if(entry!=null)communityDetected.TryGetValue(entry.Id,out info);
             var selection=new CommunitySelection{Record=record,Entry=entry,Info=info};
             string state=present<record.Files.Count?"Установка неполная · "+present+" / "+record.Files.Count+" файлов":record.Disabled?"Отключён":"Из каталога · под управлением";
-            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+" (пакет)",entry==null?"Нужен каталог":UpdateText(entry),InstalledGameVersion(entry,info,record.Version)}){Tag=selection});
+            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+(record.VersionSource=="plugin-metadata"?" (плагин)":" (пакет)"),entry==null?"Нужен каталог":UpdateText(entry),InstalledGameVersion(entry,info,record.VersionSource=="plugin-metadata"?null:record.Version)}){Tag=selection});
         }
         foreach(var e in communityEntries)
         {
             ModCatalog.InstalledInfo info;if(ids.Contains(e.Id)||IsBuiltinEntry(e)||!communityDetected.TryGetValue(e.Id,out info)||!info.Installed)continue;
-            list.Items.Add(new ListViewItem(new[]{e.Name,"Из каталога · вручную",info.Version,UpdateText(e),InstalledGameVersion(e,info,null)}){Tag=new CommunitySelection{Entry=e,Info=info}});
+            if(info.Files.Count>0&&info.Files.All(path=>represented.Contains(InventoryPath(path))))continue;
+            foreach(string path in info.Files)represented.Add(InventoryPath(path));
+            list.Items.Add(new ListViewItem(new[]{e.Name,info.Disabled?"Вручную · отключён":"Из каталога · вручную",info.Version+(info.Confidence=="plugin-guid"?" (BepInPlugin)":""),UpdateText(e),InstalledGameVersion(e,info,null)}){Tag=new CommunitySelection{Entry=e,Info=info}});
+        }
+        foreach(var plugin in ModCatalog.ListManualPlugins(root))
+        {
+            if(!represented.Add(InventoryPath(plugin.RelativePath)))continue;
+            string names=String.Join(" / ",plugin.Plugins.Select(p=>p.Name).Distinct().ToArray());
+            string versions=String.Join(" / ",plugin.Plugins.Select(p=>p.Version).Distinct().ToArray());
+            var row=new ListViewItem(new[]{names,plugin.Disabled?"Вручную · отключён · связь не подтверждена":"Вручную · связь с каталогом не подтверждена",versions+" (BepInPlugin)","Не проверено","Не указана"}){Tag=new CommunitySelection{Manual=plugin}};
+            row.ToolTipText=plugin.RelativePath;list.Items.Add(row);
         }
     }
+    private static string InventoryPath(string path){string value=(path??"").Replace('\\','/');return value.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)?value.Substring(0,value.Length-".cumm-disabled".Length):value;}
     private string InstalledGameVersion(ModCatalog.Entry entry,ModCatalog.InstalledInfo info,string archiveVersion)
     {
         if(entry==null)return "Не указана";
@@ -271,9 +289,9 @@ public sealed partial class Manager
     private bool ShowCommunitySelection()
     {
         if(communityActions==null)return false;var selected=SelectedCommunity();bool extra=selected!=null;communityActions.Visible=extra;builtinActions.Visible=!extra;if(!extra)return false;
-        details.Text=selected.Entry!=null?ModCatalog.SummaryText(selected.Entry,1200):selected.Record.Name;
-        context.Text=selected.Record!=null?"Управление включено. "+selected.Record.Files.Count+" файлов. Отключение и удаление сохраняют игровые настройки.":"Найдена ручная установка по хешу DLL. Подключите управление после проверки списка файлов.";
-        communityActions.Controls[0].Enabled=!busy&&selected.Entry!=null;communityActions.Controls[1].Enabled=communityActions.Controls[2].Enabled=!busy&&selected.Record!=null;communityActions.Controls[3].Enabled=!busy&&selected.Record==null;return true;
+        details.Text=selected.Manual!=null?String.Join("\r\n",selected.Manual.Plugins.Select(p=>p.Name+" · "+p.Version+" (BepInPlugin)\r\nGUID: "+p.Guid).ToArray())+"\r\n\r\nDLL: "+selected.Manual.RelativePath+"\r\nSHA-256: "+selected.Manual.Sha256:selected.Entry!=null?ModCatalog.SummaryText(selected.Entry,1200):selected.Record.Name;
+        context.Text=selected.Manual!=null?"Плагин найден по объявлению BepInPlugin внутри DLL. Связь с каталогом и версия архива не подтверждены. Управление файлами недоступно.":selected.Record!=null?"Управление включено. "+selected.Record.Files.Count+" файлов. Отключение и удаление сохраняют игровые настройки.":selected.Info!=null&&selected.Info.Confidence=="plugin-guid"?"GUID плагина совпал с каталогом. Показана версия из DLL; версия и состав архива не проверены. Управление принимает только указанные DLL.":"Найдена ручная установка по хешу DLL. Подключите управление после проверки списка файлов.";
+        communityActions.Controls[0].Enabled=!busy&&selected.Entry!=null;communityActions.Controls[1].Enabled=communityActions.Controls[2].Enabled=!busy&&selected.Record!=null;communityActions.Controls[3].Enabled=!busy&&selected.Record==null&&selected.Entry!=null&&selected.Info!=null&&selected.Info.Installed&&!selected.Info.Ambiguous;return true;
     }
     private void ManageCommunity(string operation,bool adopt)
     {

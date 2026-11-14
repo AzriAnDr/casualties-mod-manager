@@ -523,5 +523,8 @@
   "casualtiestogether_rule_name_AutoContinue": "Автоматическое начало забега",
   "casualtiestogether_rule_name_AutoMinPlrsToStart": "Минимум игроков для автостарта",
   "casualtiestogether_rule_name_AutoExitWhenAllDied": "Выход после гибели всех игроков",
-  "casualtiestogether_rule_name_AutoExitWhenAllLeft": "Выход после отключения всех"
+  "casualtiestogether_rule_name_AutoExitWhenAllLeft": "Выход после отключения всех",
+  "casualtiestogether_charselect_joining": "Подключение…",
+  "casualtiestogether_charselect_ready": "Готов [{0}/{1}]",
+  "casualtiestogether_charselect_readyup": "Я готов [{0}/{1}]"
 }

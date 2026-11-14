@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.5.0")]
-[assembly: AssemblyFileVersion("0.5.5.0")]
+[assembly: AssemblyVersion("0.5.6.0")]
+[assembly: AssemblyFileVersion("0.5.6.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.5";
+    const string LauncherVersion = "0.5.6";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -50,6 +50,7 @@ public sealed partial class Manager : Form
     const string State="BepInEx/config/CasualtiesModManager/";
     TextBox game, details, log; ListView list; Button install, remove, toggle, import, adopt, online; bool busy;
     [STAThread] public static int Main(string[] args) {
+        MetadataRuntime.Initialize();
         Application.EnableVisualStyles();
         try {
             if(args.Length>0) { if(args.Length<2||(args[0]!="--scan"&&args.Length<3))throw new Exception("Использование: --scan <папка игры>; --install <папка> <модуль> [ZIP]; --remove/--disable/--enable/--adopt <папка> <модуль>."); string root=Validate(args[1],args[0]!="--scan"); string result="";
@@ -73,6 +74,7 @@ public sealed partial class Manager : Form
 
     public Manager()
     {
+        MetadataRuntime.Initialize();
         NativeTheme.Initialize();
         Text = "Casualties: Unknown · Менеджер модов " + LauncherVersion;
         AutoScaleDimensions = new SizeF(96, 96);
@@ -125,7 +127,7 @@ public sealed partial class Manager : Form
         layout.Controls.Add(path, 0, 1);
 
         list = new ListView { Dock = DockStyle.Fill, MinimumSize = new Size(0, 185), View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, HeaderStyle = ColumnHeaderStyle.Nonclickable, BackColor = Surface, ForeColor = Ink, BorderStyle = BorderStyle.None, OwnerDraw = true, ShowItemToolTips = true, Margin = new Padding(0, 0, 0, 16) };
-        list.Columns.Add("Модуль"); list.Columns.Add("Состояние"); list.Columns.Add("Версия DLL"); list.Columns.Add("Доступно"); list.Columns.Add("Версия игры");
+        list.Columns.Add("Модуль"); list.Columns.Add("Состояние"); list.Columns.Add("Установлено"); list.Columns.Add("Доступно"); list.Columns.Add("Версия игры");
         list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e) { using (var b = new SolidBrush(Border)) e.Graphics.FillRectangle(b, e.Bounds); TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height), Ink, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis); NativeTheme.DrawColumnSeparator(e.Graphics,e.Bounds,true); };
         list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { if (list.View != View.Details) e.DrawDefault = true; };
         list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { bool selected = e.Item.Selected; Color color = selected ? Color.FromArgb(26, 74, 73) : Surface; using (var b = new SolidBrush(color)) e.Graphics.FillRectangle(b, e.Bounds); Color text = e.ColumnIndex == 1 && !selected ? Accent : Ink; TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height), text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis); NativeTheme.DrawColumnSeparator(e.Graphics,e.Bounds,false); };
@@ -380,7 +382,7 @@ public sealed partial class Manager : Form
         string version=installedVersion;if(String.IsNullOrWhiteSpace(version)||version=="—")version=BundledVersion(module.Id);
         System.Version parsed;if(!System.Version.TryParse(version,out parsed))return "Не указана";
         string numeric=parsed.Major+"."+parsed.Minor+"."+Math.Max(0,parsed.Build);
-        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5"||numeric=="0.2.6"||numeric=="0.2.7"||numeric=="0.2.8"||numeric=="0.2.9"||numeric=="0.2.10")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
+        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5"||numeric=="0.2.6"||numeric=="0.2.7"||numeric=="0.2.8"||numeric=="0.2.9"||numeric=="0.2.10"||numeric=="0.2.11"||numeric=="0.2.12")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
         if(module.Id=="wiki"){if(numeric=="0.2.1")return "1.0.2 · WIP";if(numeric=="0.2.0")return "1.0.1 · WIP";}
         return "Не указана";
     }

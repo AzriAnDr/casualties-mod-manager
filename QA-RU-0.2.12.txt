@@ -1,0 +1,1 @@
+Сборка0.2.12:0warnings0errors.116 Harmony model assertions PASS; original method/state/counters and locale gating preserved. No live game/co-op launch; needs gameplay confirmation. Font/network sources identical to0.2.11. Russian ZIP SHA256 a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1. Defender scan completed without matching detection.
