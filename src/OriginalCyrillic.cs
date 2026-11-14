@@ -128,11 +128,11 @@ internal static class OriginalCyrillic
         private Raster canvas,brush;private float left,top,width,height;
         internal Designer(TMP_FontAsset source,Color32[] data,int w,int h)
         {
-            font=source;pixels=data;atlasW=w;atlasH=h;cap=Math.Max(30,Mathf.RoundToInt(source.faceInfo.capLine));xheight=Math.Max(20,Mathf.RoundToInt(source.faceInfo.meanLine));baseline=Mathf.RoundToInt(cap*1.45f);canvasHeight=Mathf.RoundToInt(cap*1.95f);stroke=MeasureStroke();spacing=Math.Max(3,Mathf.RoundToInt(cap*.08f));brush=MakeBrush();
+            font=source;pixels=data;atlasW=w;atlasH=h;cap=Math.Max(30,Mathf.RoundToInt(source.faceInfo.capLine));xheight=MeasureLowercaseHeight();baseline=Mathf.RoundToInt(cap*1.45f);canvasHeight=Mathf.RoundToInt(cap*1.95f);stroke=MeasureStroke();spacing=Math.Max(3,Mathf.RoundToInt(cap*.08f));brush=MakeBrush();
         }
         internal static char DirectDonor(char c)
         {
-            const string russian="АВЕКМНОРСТХаеокрсутдпх";const string latin="ABEKMHOPCTXaeokpcymgnx";
+            const string russian="АВЕКМНОРСТХаеокрсудх";const string latin="ABEKMHOPCTXaeokpcygx";
             if(c=='\u00a0')return ' ';int i=russian.IndexOf(c);return i>=0?latin[i]:'\0';
         }
         private Drawn Original(char c)
@@ -151,6 +151,14 @@ internal static class OriginalCyrillic
             int minX=source.Width,minY=source.Height,maxX=-1,maxY=-1;
             for(int y=0;y<source.Height;y++)for(int x=0;x<source.Width;x++)if(source.Data[y*source.Width+x]>0){minX=Math.Min(minX,x);minY=Math.Min(minY,y);maxX=Math.Max(maxX,x);maxY=Math.Max(maxY,y);}
             if(maxX<minX)return new Raster(1,1);var result=new Raster(maxX-minX+1,maxY-minY+1);for(int y=0;y<result.Height;y++)Array.Copy(source.Data,(y+minY)*source.Width+minX,result.Data,y*result.Width,result.Width);return result;
+        }
+        private int MeasureLowercaseHeight()
+        {
+            // Some baked assets' meanLine is not their visible x-height.
+            // Use the median of three actual lowercase bodies, so a single
+            // unusually small o or tall n does not set every Russian letter.
+            int[] bodies={Crop(Original('o').Image).Height,Crop(Original('n').Image).Height,Crop(Original('s').Image).Height};
+            Array.Sort(bodies);return Math.Max(20,bodies[1]);
         }
         private int MeasureStroke()
         {
@@ -186,7 +194,7 @@ internal static class OriginalCyrillic
             {
                 float x1=left+p[segment]*width,y1=top+p[segment+1]*height,x2=left+p[segment+2]*width,y2=top+p[segment+3]*height;
                 float dx=x2-x1,dy=y2-y1,length=Math.Max(1,(float)Math.Sqrt(dx*dx+dy*dy));
-                float scale=Math.Max(.45f,height/cap),pen=brush.Width*scale;
+                float scale=Math.Max(.45f,height/brush.Height),pen=brush.Width*scale;
                 int minX=Math.Max(0,(int)Math.Floor(Math.Min(x1,x2)-pen)),maxX=Math.Min(canvas.Width-1,(int)Math.Ceiling(Math.Max(x1,x2)+pen)),minY=Math.Max(0,(int)Math.Floor(Math.Min(y1,y2)-pen)),maxY=Math.Min(canvas.Height-1,(int)Math.Ceiling(Math.Max(y1,y2)+pen));
                 for(int y=minY;y<=maxY;y++)for(int x=minX;x<=maxX;x++)
                 {
@@ -219,7 +227,8 @@ internal static class OriginalCyrillic
                 case 'Л':Put(Donor('V',height,width,false,true));break;
                 case 'М':Put(Donor('M',height,width*1.2f));break;
                 case 'Н':Put(Donor('H',height,width));break;
-                case 'П':Stroke(.02f,1,-.02f,.04f,.98f,0,.96f,1);break;
+                case 'П':DrawPi();break;
+                case 'Т':Put(Donor('T',height,width));break;
                 case 'У':Put(Donor('Y',height,width));Stroke(.5f,.48f,.38f,1.07f,.15f,1.12f);break;
                 case 'Ф':Put(Donor('O',height*.76f,width),left,top+height*.12f);Stroke(.52f,-.08f,.48f,1.15f);break;
                 case 'Ц':DrawConnectedTs();break;
@@ -237,6 +246,16 @@ internal static class OriginalCyrillic
             if(maxX<minX)throw new InvalidOperationException("No custom glyph design for U+"+((int)c).ToString("X4"));
             var mask=new Raster(maxX-minX+1,maxY-minY+1);for(int y=0;y<mask.Height;y++)Array.Copy(canvas.Data,(y+minY)*canvas.Width+minX,mask.Data,y*mask.Width,mask.Width);
             return new Drawn(mask,new GlyphMetrics(mask.Width,mask.Height,0,baseline-minY,mask.Width+spacing));
+        }
+        private void DrawPi()
+        {
+            // Printed Cyrillic п/П: two native stems and a source T crossbar,
+            // never the diagonal Latin n or the three-humped Latin m.
+            Stroke(.03f,.03f,0,1);Stroke(.98f,.02f,.95f,1);
+            var t=Crop(Original('T').Image);int h=Math.Max(1,Mathf.RoundToInt(t.Height*.2f));
+            var bar=new Raster(t.Width,h);Array.Copy(t.Data,bar.Data,bar.Data.Length);bar=Crop(bar);
+            var resized=bar.Resize(Math.Max(1,Mathf.RoundToInt(width+brush.Width*height/brush.Height*.35f)),Math.Max(1,Mathf.RoundToInt(bar.Height*height/t.Height)));
+            Put(resized,left-brush.Width*height/brush.Height*.15f,top);
         }
         private void DrawConnectedTs()
         {

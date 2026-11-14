@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Text.RegularExpressions;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -17,9 +18,11 @@ public static class RussianNetworkText
     static Language english, russian, cachedTarget;
     static PhraseIndex englishIndex, russianIndex, cachedIndex;
     static bool enabled;
+    static FieldInfo currentLineField;
     [ThreadStatic] static int generatedDepth;
     [ThreadStatic] static int receivedDepth;
     [ThreadStatic] static object generatedTalker;
+    [ThreadStatic] static object receivedTalker;
     static readonly string[] LimbKeys = { "HeadShort", "UpTorsoShort", "DownTorsoShort", "UpArmFShort", "DownArmFShort", "HandFShort", "UpArmBShort", "DownArmBShort", "HandBShort", "ThighFShort", "CrusFShort", "FootFShort", "ThighBShort", "CrusBShort", "FootBShort" };
     static readonly Regex Wrapper = new Regex(@"\A<(b|i|color|size)(=[^<>\r\n]{1,80})?>", RegexOptions.CultureInvariant);
     sealed class Scope { public int Depth; public object Talker; }
@@ -62,6 +65,7 @@ public static class RussianNetworkText
     public static void Enable(Harmony harmony, ManualLogSource log, Language russianLanguage)
     {
         if (enabled) return;
+        var attempted = new List<MethodBase>();
         try
         {
             string path = Path.Combine(Application.dataPath, "Lang", "EN.json");
@@ -72,20 +76,28 @@ public static class RussianNetworkText
             Type talkPatch = asm.GetType("Together.Talker_Talk_MultiplayerPatch", false), receiverType = asm.GetType("Together.YOU_SHOULD_KILL_YOURSELF_NOOOW", false), serverType = asm.GetType("Together.ServerMain", false);
             MethodInfo generated = Find(talkPatch, "Postfix", "Talker");
             MethodInfo receiver = Find(receiverType, "Client_ForceTalkerSay", "Together.knetid", "LiteNetLib.Utils.NetDataReader");
+            MethodInfo hostReceiver = Find(serverType, "ServerReceiver__PlayerTalkerSay", "Together.knetid", "LiteNetLib.Utils.NetDataReader");
             MethodInfo display = Find(talkPatch, "ForceNoSpeechImpairment", "Talker", "System.String", "System.Boolean");
             MethodInfo send = Find(serverType, "TalkerSayAnnounce", "Together.knetid&", "System.Byte&", "System.String&", "System.Collections.Generic.IReadOnlyList`1[Together.knetid]");
-            if (generated == null || receiver == null || display == null || send == null) { log.LogWarning("Network speech localization: unsupported Together method signatures; no hooks installed."); return; }
+            if (generated == null || receiver == null || hostReceiver == null || display == null || send == null) { log.LogWarning("Network speech localization: unsupported Together method signatures; no hooks installed."); return; }
+            currentLineField = AccessTools.Field(generated.GetParameters()[0].ParameterType, "currentString");
+            if (currentLineField == null || currentLineField.FieldType != typeof(string)) { log.LogWarning("Network speech localization: unsupported Talker text field; no hooks installed."); return; }
             english = en; russian = russianLanguage;
             englishIndex = BuildIndex(english, english, russian); russianIndex = BuildIndex(russian, english, russian);
             // Finalizers restore thread-local scopes even if Together or another patch throws.
-            harmony.Patch(generated, prefix: Hook("GeneratedBegin"), finalizer: Hook("GeneratedEnd"));
-            harmony.Patch(receiver, prefix: Hook("ReceivedBegin"), finalizer: Hook("ReceivedEnd"));
-            harmony.Patch(display, prefix: Hook("DisplayLine"));
-            harmony.Patch(send, prefix: Hook("CanonicalLine"));
+            attempted.Add(generated); harmony.Patch(generated, prefix: Hook("GeneratedBegin"), transpiler: Hook("CaptureWireLine"), finalizer: Hook("GeneratedEnd"));
+            attempted.Add(receiver); harmony.Patch(receiver, prefix: Hook("ReceivedBegin"), finalizer: Hook("ReceivedEnd"));
+            attempted.Add(hostReceiver); harmony.Patch(hostReceiver, prefix: Hook("ReceivedBegin"), finalizer: Hook("ReceivedEnd"));
+            attempted.Add(display); harmony.Patch(display, prefix: Hook("DisplayLine"));
+            attempted.Add(send); harmony.Patch(send, prefix: Hook("CanonicalLine"));
             enabled = true;
-            log.LogInfo("Network speech localization enabled for Together " + asm.GetName().Version + ": known generated lines only; typed chat unchanged.");
+            log.LogInfo("Network speech localization enabled for Together " + asm.GetName().Version + ": client/host wire capture and both receive paths; known generated lines only; typed chat unchanged.");
         }
-        catch (Exception e) { log.LogWarning("Network speech localization was not enabled: " + e.GetType().Name + ": " + e.Message); }
+        catch (Exception e)
+        {
+            foreach (var method in attempted) try { harmony.Unpatch(method, HarmonyPatchType.All, harmony.Id); } catch (Exception rollback) { log.LogWarning("Network hook rollback failed: " + rollback.Message); }
+            log.LogWarning("Network speech localization was not enabled: " + e.GetType().Name + ": " + e.Message);
+        }
     }
     static HarmonyMethod Hook(string name) { var method = new HarmonyMethod(typeof(RussianNetworkText), name); method.priority = Priority.First; return method; }
     static MethodInfo Find(Type type, string name, params string[] signature)
@@ -93,19 +105,50 @@ public static class RussianNetworkText
         if (type == null) return null;
         return type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static).SingleOrDefault(m => m.Name == name && m.GetParameters().Select(p => p.ParameterType.ToString()).SequenceEqual(signature));
     }
-    static void GeneratedBegin(object __0, out Scope __state) { __state = new Scope { Depth = generatedDepth, Talker = generatedTalker }; generatedDepth++; generatedTalker = __0; }
-    static Exception GeneratedEnd(Exception __exception, Scope __state) { if (__state != null) { generatedDepth = __state.Depth; generatedTalker = __state.Talker; } return __exception; }
-    static void ReceivedBegin(out int __state) { __state = receivedDepth; receivedDepth++; }
-    static Exception ReceivedEnd(Exception __exception, int __state) { receivedDepth = __state; return __exception; }
+    static void GeneratedBegin(object __0, out Scope __state)
+    {
+        __state = new Scope { Depth = generatedDepth, Talker = generatedTalker };
+        generatedDepth++; generatedTalker = __0;
+    }
+    static Exception GeneratedEnd(Exception __exception, Scope __state)
+    {
+        if (__state != null) { generatedDepth = __state.Depth; generatedTalker = __state.Talker; }
+        return __exception;
+    }
+    static string CapturedLine(string text, object talker)
+    {
+        return englishIndex == null ? text : englishIndex.Translate(text, CharacterType(talker));
+    }
+    static IEnumerable<CodeInstruction> CaptureWireLine(IEnumerable<CodeInstruction> source)
+    {
+        var code = new List<CodeInstruction>(source);
+        var matches = new List<int>();
+        for (int i = 0; i + 1 < code.Count; i++)
+        {
+            var from = code[i].operand as FieldInfo; var to = code[i + 1].operand as FieldInfo;
+            if (code[i].opcode == OpCodes.Ldfld && from != null && from.Equals(currentLineField)
+                && code[i + 1].opcode == OpCodes.Stfld && to != null && to.Name == "curstr" && to.FieldType == typeof(string)) matches.Add(i);
+        }
+        if (matches.Count != 1) throw new InvalidOperationException("Unsupported Together generated-text capture; network hooks rolled back.");
+        // Change only the copy captured for serialization. The actor's currentString,
+        // yelling/font detection, manual chat and game speech effects stay untouched.
+        code.InsertRange(matches[0] + 1, new[] { new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Call,
+            typeof(RussianNetworkText).GetMethod("CapturedLine", BindingFlags.Static | BindingFlags.NonPublic)) });
+        return code;
+    }
+    static void ReceivedBegin(out Scope __state) { __state = new Scope { Depth = receivedDepth, Talker = receivedTalker }; receivedDepth++; receivedTalker = null; }
+    static Exception ReceivedEnd(Exception __exception, Scope __state) { if (__state != null) { receivedDepth = __state.Depth; receivedTalker = __state.Talker; } return __exception; }
     static void CanonicalLine(ref string __2)
     {
-        if (generatedDepth == 0 || englishIndex == null) return;
-        __2 = englishIndex.Translate(__2, CharacterType(generatedTalker));
+        if (englishIndex == null) return;
+        if (generatedDepth > 0) __2 = englishIndex.Translate(__2, CharacterType(generatedTalker));
+        else if (receivedDepth > 0) __2 = englishIndex.Translate(__2, CharacterType(receivedTalker));
     }
     static void DisplayLine(object __0, ref string __1)
     {
         // Chat.Client_ChatMessageReceive calls this same helper, but does NOT enter receivedDepth.
         if (receivedDepth == 0) return;
+        receivedTalker = __0;
         __1 = Localize(__1, CharacterType(__0), Locale.currentLang);
     }
     internal static string Localize(string text, int species, Language target)
