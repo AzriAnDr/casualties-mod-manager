@@ -7,6 +7,8 @@ p = argparse.ArgumentParser()
 p.add_argument('--game', required=True)
 p.add_argument('--sdk', required=True)
 p.add_argument('--work')
+p.add_argument('--russian-package', help='Reuse the published module ZIP byte for byte')
+p.add_argument('--wiki-package', help='Reuse the published module ZIP byte for byte')
 a = p.parse_args()
 work = Path(a.work).resolve() if a.work else root / 'build'
 work.mkdir(parents=True, exist_ok=True)
@@ -20,6 +22,15 @@ with zipfile.ZipFile(work/'russian.zip', 'w', zipfile.ZIP_DEFLATED) as z:
 with zipfile.ZipFile(work/'wiki.zip', 'w', zipfile.ZIP_DEFLATED) as z:
     z.write(work/'plugins/CuWiki.dll', 'BepInEx/plugins/CuWiki/CuWiki.dll')
 
+# Reuse already published immutable packages for official launcher releases.
+for package, filename, prefix in [(a.russian_package, 'russian.zip', 'BepInEx/plugins/CuRussian/'), (a.wiki_package, 'wiki.zip', 'BepInEx/plugins/CuWiki/')]:
+    if package:
+        original = Path(package).resolve()
+        with zipfile.ZipFile(original) as z:
+            names = z.namelist()
+            assert names and all(n.startswith(prefix) and '..' not in n.split('/') for n in names), 'Unexpected module ZIP paths'
+        shutil.copyfile(original, work/filename)
+
 def plugin_version(name):
     deps=json.loads((work/'plugins'/(name+'.deps.json')).read_text(encoding='utf8'))
     return next(key.split('/',1)[1] for key in deps['libraries'] if key.startswith(name+'/'))
@@ -30,11 +41,11 @@ loader=work/'BepInEx_win_x64_5.4.23.5.zip'
 if not loader.exists():
     urllib.request.urlretrieve('https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip',loader)
 assert hashlib.sha256(loader.read_bytes()).hexdigest()=='82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4', 'BepInEx checksum mismatch'
-exe = root.parent/'Casualties-ModManager-0.5.4.exe'
+exe = root.parent/'Casualties-ModManager-0.5.5.exe'
 csc = Path('C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe')
 helper=work/'UpdateHelper.exe'
 subprocess.run([str(csc),'/nologo','/target:winexe','/out:'+str(helper),str(root/'src/UpdateHelper.cs')],check=True)
 subprocess.run([str(csc), '/nologo', '/target:winexe', '/platform:x64', '/out:'+str(exe), '/win32icon:'+str(assets/'AppIcon.ico'), '/resource:'+str(assets/'AppIcon.ico')+',AppIcon.ico', '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll', '/reference:System.Web.Extensions.dll', '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll', '/resource:'+str(work/'russian.zip')+',russian.zip', '/resource:'+str(work/'wiki.zip')+',wiki.zip', '/resource:'+str(loader)+',Loader.zip', '/resource:'+str(work/'BundledCatalog.json')+',BundledCatalog.json', '/resource:'+str(helper)+',UpdateHelper.exe','/resource:'+str(assets/'CatalogSnapshot.json')+',CatalogSnapshot.json','/resource:'+str(assets/'CATALOG-LICENSE.txt')+',CatalogLicense.txt',str(root/'src/ModCatalog.cs'),str(root/'src/CommunityInstaller.cs'),str(root/'src/ArchiveInbox.cs'),str(root/'src/CatalogUi.cs'),str(root/'src/SteamGameLocator.cs'),str(root/'src/LauncherUpdate.cs'),str(root/'src/ModuleCatalog.cs'),str(root/'src/ModuleUi.cs'),str(root/'src/NativeTheme.cs'),str(root/'src/Manager.cs')],check=True)
 # Versioned output: preserve previous release binaries until publication.
-(root/'BUILD-REPORT.txt').write_text('Manager version: 0.5.4\nRussian version: '+catalog['russian']+'\nWiki version: '+catalog['wiki']+'\nPlugin builds: passed, no warnings\nManager build: passed\nManager SHA256: '+hashlib.sha256(exe.read_bytes()).hexdigest()+'\n',encoding='utf8')
+(root/'BUILD-REPORT.txt').write_text('Manager version: 0.5.5\nRussian version: '+catalog['russian']+'\nWiki version: '+catalog['wiki']+'\nPlugin builds: passed, no warnings\nManager build: passed\nManager SHA256: '+hashlib.sha256(exe.read_bytes()).hexdigest()+'\n',encoding='utf8')
 print(exe)

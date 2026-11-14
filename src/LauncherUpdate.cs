@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Net;
 using System.Diagnostics;
@@ -278,7 +278,7 @@ public static class LauncherUpdate
             var request = (HttpWebRequest)WebRequest.Create(current);
             int remaining = 20000 - (int)deadline.ElapsedMilliseconds;
             if (remaining <= 0) throw new WebException("Проверка или загрузка обновления превысила 20 секунд.", WebExceptionStatus.Timeout);
-            request.Method = "GET"; request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.UserAgent = "CasualtiesModManager-Updater/0.5.4"; request.KeepAlive = false;
+            request.Method = "GET"; request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.UserAgent = "CasualtiesModManager-Updater/0.5.5"; request.KeepAlive = false;
             using (var response = (HttpWebResponse)request.GetResponse())
             {
                 int code = (int)response.StatusCode;

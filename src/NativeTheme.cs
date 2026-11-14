@@ -7,6 +7,12 @@ using System.Runtime.InteropServices;
 internal static class NativeTheme
 {
     static bool initialized;
+    internal static void DrawColumnSeparator(Graphics graphics,Rectangle bounds,bool header)
+    {
+        if(bounds.Width<=0||bounds.Height<=0)return;
+        using(var pen=new Pen(header?Color.FromArgb(71,91,102):Color.FromArgb(49,69,80)))
+            graphics.DrawLine(pen,bounds.Right-1,bounds.Top,bounds.Right-1,bounds.Bottom-1);
+    }
     [DllImport("uxtheme.dll",EntryPoint="#135")] static extern int SetPreferredAppMode(int mode);
     [DllImport("uxtheme.dll",EntryPoint="#133")] static extern bool AllowDarkModeForWindow(IntPtr window,bool allow);
     [DllImport("uxtheme.dll",CharSet=CharSet.Unicode)] static extern int SetWindowTheme(IntPtr window,string app,string id);
@@ -16,6 +22,7 @@ internal static class NativeTheme
     [DllImport("user32.dll")] static extern IntPtr GetWindowDC(IntPtr window);
     [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window,IntPtr dc);
     [DllImport("user32.dll",EntryPoint="GetWindowLongW")] static extern int GetWindowLong(IntPtr window,int index);
+    [DllImport("user32.dll")] static extern int GetScrollPos(IntPtr window,int bar);
     [StructLayout(LayoutKind.Sequential)] struct Rect {public int Left,Top,Right,Bottom;}
     internal static void Initialize()
     {
@@ -51,6 +58,27 @@ internal static class NativeTheme
         protected override void WndProc(ref Message message)
         {
             base.WndProc(ref message);
+            if(!owner.IsDisposed&&(message.Msg==0x000f||message.Msg==0x0317||message.Msg==0x0318))
+            {
+                // Explorer paints two-pixel etched rails below the last item. Replace
+                // that blank area with the same one-pixel separators used by owner draw.
+                Rect head;
+                if(GetClientRect(header,out head))
+                {
+                    int emptyTop=Math.Max(head.Bottom,owner.Items.Count==0?head.Bottom:owner.Items[owner.Items.Count-1].Bounds.Bottom);
+                    if(emptyTop<owner.ClientSize.Height)
+                    using(var graphics=message.Msg==0x000f?Graphics.FromHwnd(Handle):Graphics.FromHdc(message.WParam))
+                    {
+                        using(var brush=new SolidBrush(owner.BackColor))graphics.FillRectangle(brush,0,emptyTop,owner.ClientSize.Width,owner.ClientSize.Height-emptyTop);
+                        int x=-GetScrollPos(Handle,0);
+                        foreach(ColumnHeader column in owner.Columns)
+                        {
+                            DrawColumnSeparator(graphics,new Rectangle(x,emptyTop,column.Width,owner.ClientSize.Height-emptyTop),false);
+                            x+=column.Width;
+                        }
+                    }
+                }
+            }
             if((message.Msg!=0x000f&&message.Msg!=0x0085)||owner.IsDisposed||(GetWindowLong(Handle,-16)&0x00200000)==0)return;
             Rect window,top;if(!GetWindowRect(Handle,out window)||!GetClientRect(header,out top))return;
             int width=window.Right-window.Left,bar=SystemInformation.VerticalScrollBarWidth,height=top.Bottom;
