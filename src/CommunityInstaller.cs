@@ -155,8 +155,12 @@ public static class CommunityInstaller
                 }
                 var prefixes = raw.Where(e => Regex.IsMatch(e.Key, "^(?:[^/]+/)?BepInEx/", RegexOptions.IgnoreCase)).Select(e => e.Key.Substring(0, e.Key.IndexOf("BepInEx/", StringComparison.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 if (prefixes.Count > 1) throw Fail("В архиве несколько корневых папок BepInEx.");
+                // A package may start at plugins/ rather than at the game root. Treat it as an
+                // explicit install root, not a mod folder named plugins (including one wrapper).
+                var pluginPrefixes = raw.Where(e => !Regex.IsMatch(e.Key, "^(?:[^/]+/)?BepInEx/", RegexOptions.IgnoreCase)).Select(e => Regex.Match(e.Key, "^(?:[^/]+/)?plugins/", RegexOptions.IgnoreCase)).Where(m => m.Success).Select(m => m.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (pluginPrefixes.Count > 1 || (prefixes.Count > 0 && pluginPrefixes.Count > 0)) throw Fail("В архиве несколько несовместимых корневых папок plugins.");
                 bool bareRootDll = raw.Any(e => e.Key.IndexOf('/') < 0 && names.Contains(e.Key));
-                if (prefixes.Count == 0 && !bareRootDll && raw.Where(e => !IsDocument(e.Key) || e.Key.IndexOf('/') >= 0).Select(e => e.Key.Split('/')[0]).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1) throw Fail("Выберите ZIP с одной папкой мода или основной DLL в корне.");
+                if (prefixes.Count == 0 && pluginPrefixes.Count == 0 && !bareRootDll && raw.Where(e => !IsDocument(e.Key) || e.Key.IndexOf('/') >= 0).Select(e => e.Key.Split('/')[0]).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1) throw Fail("Выберите ZIP с одной папкой мода или основной DLL в корне.");
                 foreach (var item in raw)
                 {
                     string p = item.Key;
@@ -164,6 +168,12 @@ public static class CommunityInstaller
                     {
                         string prefix = prefixes[0];
                         if (p.StartsWith(prefix + "BepInEx/", StringComparison.OrdinalIgnoreCase)) p = p.Substring(prefix.Length);
+                        else { if (IsDocument(p)) continue; throw Fail("Файл за пределами plugins: " + p); }
+                    }
+                    else if (pluginPrefixes.Count == 1)
+                    {
+                        string prefix = pluginPrefixes[0];
+                        if (p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) p = "BepInEx/plugins/" + p.Substring(prefix.Length);
                         else { if (IsDocument(p)) continue; throw Fail("Файл за пределами plugins: " + p); }
                     }
                     else
@@ -214,10 +224,23 @@ public static class CommunityInstaller
         foreach (string file in Directory.GetFiles(dir, "*.json")) result.Add(Load(root, Path.GetFileNameWithoutExtension(file)));
         return result;
     }
-    static void CheckOwned(string root, InstalledRecord r)
+    // Read-only status for the UI: absence never silently deletes ownership metadata.
+    public static int CountPresent(string gameRoot, InstalledRecord record)
+    {
+        string root = Root(gameRoot, false);
+        if (record == null) throw Fail("Нет записи установленного мода.");
+        ValidateRecord(record, record.Id);
+        return record.Files.Count(f => File.Exists(Under(root, Actual(record, f))));
+    }
+    static void CheckOwned(string root, InstalledRecord r, bool allowMissing = false)
     {
         if (r == null) return;
-        foreach (var f in r.Files) { string path = Under(root, Actual(r, f)); if (!File.Exists(path) || !String.Equals(FileHash(path), f.Hash, StringComparison.OrdinalIgnoreCase)) throw Fail("Управляемый файл отсутствует или изменён: " + Actual(r, f) + ". Сохраните свои изменения отдельно."); }
+        foreach (var f in r.Files)
+        {
+            string path = Under(root, Actual(r, f));
+            if (!File.Exists(path) && !Directory.Exists(path) && allowMissing) continue;
+            if (!File.Exists(path) || !String.Equals(FileHash(path), f.Hash, StringComparison.OrdinalIgnoreCase)) throw Fail("Управляемый файл отсутствует или изменён: " + Actual(r, f) + ". Сохраните свои изменения отдельно.");
+        }
     }
     static HashSet<string> OtherOwned(string root, string except)
     {
@@ -253,7 +276,7 @@ public static class CommunityInstaller
         {
             GuardProcesses(root);
             if (!File.Exists(Under(root, "BepInEx/core/BepInEx.dll"))) throw Fail("Сначала установите BepInEx отдельным модулем.");
-            var old = Load(root, plan.ModuleId); CheckOwned(root, old);
+            var old = Load(root, plan.ModuleId); CheckOwned(root, old, true);
             var previous = new HashSet<string>(old == null ? new string[0] : old.Files.Select(f => Actual(old, f)), StringComparer.OrdinalIgnoreCase);
             var other = OtherOwned(root, plan.ModuleId);
             if (old != null && old.Files.Any(f => other.Contains(f.Path) || other.Contains(Actual(old, f)))) throw Fail("Конфликт владельцев ранее установленных файлов.");
@@ -268,7 +291,17 @@ public static class CommunityInstaller
     public static Result Remove(string gameRoot, string moduleId)
     {
         string root = Root(gameRoot, true); Id(moduleId);
-        using (Lock(root)) { GuardProcesses(root); var old = Load(root, moduleId); if (old == null) throw Fail("Мод не управляется менеджером."); CheckOwned(root, old); var other = OtherOwned(root, moduleId); if (old.Files.Any(f => other.Contains(f.Path))) throw Fail("Конфликт владельцев файлов."); var deletes = old.Files.Select(f => Actual(old, f)).ToList(); deletes.Add(Database + moduleId + ".json"); return Transaction(root, new Dictionary<string, byte[]>(), deletes, "community-remove-" + moduleId, old.Files.Count); }
+        using (Lock(root))
+        {
+            GuardProcesses(root); var old = Load(root, moduleId); if (old == null) throw Fail("Мод не управляется менеджером.");
+            CheckOwned(root, old, true); var other = OtherOwned(root, moduleId);
+            var present = old.Files.Where(f => File.Exists(Under(root, Actual(old, f)))).ToList();
+            if (present.Any(f => other.Contains(f.Path) || other.Contains(Actual(old, f)))) throw Fail("Конфликт владельцев файлов.");
+            // Retain absent owned paths in the transaction so their now-empty ancestors can also
+            // be pruned after explicit removal; no file is recreated or deleted at an absent path.
+            var deletes = old.Files.Select(f => Actual(old, f)).ToList(); deletes.Add(Database + moduleId + ".json");
+            return Transaction(root, new Dictionary<string, byte[]>(), deletes, "community-remove-" + moduleId, present.Count);
+        }
     }
     // Explicit adoption records only individually selected DLLs. It never guesses ownership of assets.
     public static Result Adopt(string gameRoot, string moduleId, string displayName, string version, IEnumerable<string> relativeFiles)
@@ -315,12 +348,20 @@ public static class CommunityInstaller
     {
         var paths = writes.Keys.Concat(deletes).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var before = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        string backupRel = State + "backups/" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "-" + label + "/";
+        // Do not duplicate already long plugin paths underneath a long operation directory.
+        // Fixed-length transaction IDs and flat blob names keep backup paths short on legacy .NET.
+        string backupRel = State + "backups/" + Guid.NewGuid().ToString("N").Substring(0, 16) + "/";
         string journal = Under(root, backupRel + "transaction.json");
         foreach (string path in paths) { string full = Under(root, path); if (Directory.Exists(full)) throw Fail("Путь занят папкой: " + path); if (File.Exists(full) && new FileInfo(full).Length > MaxFile) throw Fail("Существующий файл слишком велик: " + path); before.Add(path, File.Exists(full) ? File.ReadAllBytes(full) : null); }
         Directory.CreateDirectory(Path.GetDirectoryName(journal));
-        foreach (var p in before.Where(p => p.Value != null)) { string copy = Under(root, backupRel + "files/" + p.Key); Directory.CreateDirectory(Path.GetDirectoryName(copy)); File.WriteAllBytes(copy, p.Value); }
-        File.WriteAllText(journal, Json.Serialize(new { status = "prepared", paths = paths, absent = before.Where(p => p.Value == null).Select(p => p.Key).ToArray() }));
+        var backupNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); int blob = 0;
+        foreach (var p in before.Where(p => p.Value != null))
+        {
+            string name = "files/" + (blob++).ToString("D6") + ".bin", copy = Under(root, backupRel + name);
+            Directory.CreateDirectory(Path.GetDirectoryName(copy)); File.WriteAllBytes(copy, p.Value); backupNames.Add(p.Key, name);
+        }
+        var entries = before.Select(p => new { path = p.Key, backup = p.Value == null ? null : backupNames[p.Key], absent = p.Value == null, sha256 = p.Value == null ? null : Hash(p.Value) }).ToArray();
+        File.WriteAllText(journal, Json.Serialize(new { status = "prepared", operation = label, paths = paths, entries = entries, absent = before.Where(p => p.Value == null).Select(p => p.Key).ToArray() }));
         try
         {
             foreach (var p in writes)
@@ -332,16 +373,41 @@ public static class CommunityInstaller
                 File.WriteAllBytes(full, p.Value);
             }
             foreach (string path in deletes.Where(p => !writes.ContainsKey(p))) { string full = Under(root, path); if (File.Exists(full)) File.Delete(full); }
-            File.WriteAllText(journal, Json.Serialize(new { status = "committed", paths = paths }));
+            File.WriteAllText(journal, Json.Serialize(new { status = "committed", operation = label, paths = paths, entries = entries }));
         }
         catch (Exception original)
         {
             var failures = new List<Exception>();
             foreach (var p in before) try { string full = Under(root, p.Key); if (p.Value == null) { if (File.Exists(full)) File.Delete(full); } else { Directory.CreateDirectory(Path.GetDirectoryName(full)); File.WriteAllBytes(full, p.Value); } } catch (Exception e) { failures.Add(e); }
-            File.WriteAllText(journal, Json.Serialize(new { status = failures.Count == 0 ? "rolled_back" : "rollback_incomplete", paths = paths }));
+            File.WriteAllText(journal, Json.Serialize(new { status = failures.Count == 0 ? "rolled_back" : "rollback_incomplete", operation = label, paths = paths, entries = entries }));
             if (failures.Count > 0) throw Fail("Откат не завершён. Резервная копия: " + Path.GetDirectoryName(journal) + "; исходная ошибка: " + original.Message);
             throw;
         }
+        PruneEmptyParents(root, deletes.Where(p => !writes.ContainsKey(p)));
         return new Result { BackupPath = Path.GetDirectoryName(journal), FileCount = count };
+    }
+    static void PruneEmptyParents(string root, IEnumerable<string> deletedPaths)
+    {
+        const string stop = "BepInEx/plugins";
+        foreach (string deleted in deletedPaths)
+        {
+            try
+            {
+                string relative = Clean(deleted);
+                if (!relative.StartsWith(stop + "/", StringComparison.OrdinalIgnoreCase)) continue;
+                string parent = relative.Substring(0, relative.LastIndexOf('/'));
+                while (parent.Length > stop.Length && parent.StartsWith(stop + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string path = Under(root, parent);
+                    if (Directory.Exists(path))
+                    {
+                        if (Directory.EnumerateFileSystemEntries(path).Any()) break;
+                        Directory.Delete(path, false); // Never recurse or remove a nonempty/foreign tree.
+                    }
+                    parent = parent.Substring(0, parent.LastIndexOf('/'));
+                }
+            }
+            catch { /* Optional post-commit cleanup must never roll back a successful operation. */ }
+        }
     }
 }

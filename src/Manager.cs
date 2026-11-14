@@ -13,16 +13,16 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.3.0")]
-[assembly: AssemblyFileVersion("0.5.3.0")]
+[assembly: AssemblyVersion("0.5.4.0")]
+[assembly: AssemblyFileVersion("0.5.4.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.3";
+    const string LauncherVersion = "0.5.4";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
-    public sealed class Manifest { public string Module; public string Version; public bool Disabled; public List<Item> Files = new List<Item>(); }
+    public sealed class Manifest { public string Module; public string Version; public bool Disabled; public string[] GameVersions; public List<Item> Files = new List<Item>(); }
     public sealed class Module { public string Id, Name, Description, Prefix, Dll, Resource; public Module(string id,string name,string description,string prefix,string dll,string resource) { Id=id;Name=name;Description=description;Prefix=prefix;Dll=dll;Resource=resource; } }
     static readonly Module[] Catalog = {
         new Module("russian","Русский перевод","Перевод интерфейса и игровых текстов. Пакет уже встроен в EXE. Обновление из нового комплекта или ZIP; онлайн-репозитория этого плагина пока нет.","BepInEx/plugins/CuRussian/","CuRussian.dll","russian.zip"),
@@ -73,6 +73,7 @@ public sealed partial class Manager : Form
 
     public Manager()
     {
+        NativeTheme.Initialize();
         Text = "Casualties: Unknown · Менеджер модов " + LauncherVersion;
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -119,7 +120,7 @@ public sealed partial class Manager : Form
         game = new TextBox { Dock = DockStyle.Fill, Text = DefaultPath(), BackColor = Surface, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 7, 10, 0) };
         browse = MakeButton("Выбрать…", 110, false); scan = MakeButton("Обновить", 112, false);
         browse.Click += delegate { using (var d = new FolderBrowserDialog()) { d.Description = "Папка с CasualtiesUnknown.exe"; if (Directory.Exists(game.Text)) d.SelectedPath = game.Text; if (d.ShowDialog() == DialogResult.OK) { game.Text = d.SelectedPath; RefreshList(); } } };
-        scan.Click += delegate { RefreshList(); };
+        scan.Click += delegate { ModCatalog.ClearDetectionCache(); RefreshList(); var refresh=ReloadCommunity(false); };
         path.Controls.Add(pathLabel, 0, 0); path.SetColumnSpan(pathLabel, 3); path.Controls.Add(game, 0, 1); path.Controls.Add(browse, 1, 1); path.Controls.Add(scan, 2, 1);
         layout.Controls.Add(path, 0, 1);
 
@@ -147,7 +148,8 @@ public sealed partial class Manager : Form
         actions.Controls.AddRange(new Control[] { install, toggle, remove, import, adopt, online });
         tips.SetToolTip(adopt, "Для установленного вручную мода: посмотреть найденные файлы, сохранить копию и разрешить менеджеру обновлять или удалять только эти файлы.");
         tips.SetToolTip(import, "Выберите ZIP для выделенного модуля. Перед установкой менеджер покажет список файлов.");
-        install.Click += delegate { ActionRun("установка / обновление", delegate(string root, Module m) { if(m.Id!="bepinex"&&!EnsureLoaderForCommunity(root,true))return null; if (m.Id == "together") return OnlineInstall(root, m); using (Stream s = Resource(m)) { var files = ReadZip(s, m); if (!Preview(files, "Установить или обновить «" + m.Name + "»?")) return null; bool update = Load(root, m) != null; Install(root, m, files, "bundled"); return update ? "Обновлён из комплекта" : "Установлен из комплекта"; } }); };
+        install.Click += async delegate { await InstallBuiltIn(); };
+        var checkModules=MakeButton("Обновления модулей",205,false);checkModules.Click+=async delegate{if(!busy)await CheckModuleUpdates(true);};actions.Controls.Add(checkModules);
         remove.Click += delegate { ActionRun("удаление", delegate(string root, Module m) { Manifest old = Load(root, m); if (old == null) throw new Exception("Для ручной установки сначала выберите «Управлять модом…» и проверьте найденные файлы."); if (!Preview(old.Files.ToDictionary(f => f.Path, f => new byte[0]), "Удалить перечисленные файлы «" + m.Name + "»? Конфиги и открытия сохранятся.", "Удалить файлы")) return null; Remove(root, m); return "Управляемые файлы удалены; настройки сохранены"; }); };
         toggle.Click += delegate { ActionRun("переключение состояния", delegate(string root, Module m) { Manifest old = Load(root, m); if (old == null) throw new Exception("Сначала включите управление найденным модом."); bool disabled = !old.Disabled; Toggle(root, m, disabled); return disabled ? "Отключён; DLL временно исключены из загрузки" : "Включён; DLL восстановлены для загрузки"; }); };
         import.Click += delegate { ActionRun("импорт ZIP", delegate(string root, Module m) { if (m.Id == "unlock" && MessageBox.Show(this, "Совместимость SkipCharacterUnlock с игрой 1.0.2 и Together не подтверждена. Импорт возможен только из ZIP с опознаваемым SkipCharacterUnlock.dll. Продолжить?", "Совместимость не проверена", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return null; using (var d = new OpenFileDialog { Filter = "ZIP-архив|*.zip", Title = "ZIP для модуля: " + m.Name }) { if (d.ShowDialog(this) != DialogResult.OK) return null; using (Stream s = File.OpenRead(d.FileName)) { var files = ReadZip(s, m); if (!Preview(files, "Импорт в модуль «" + m.Name + "». Проверьте пути перед установкой.")) return null; Install(root, m, files, "import"); return "Установлен / обновлён из ZIP «" + Path.GetFileName(d.FileName) + "»"; } } }); };
@@ -163,7 +165,9 @@ public sealed partial class Manager : Form
         InstallCatalogUi(layout, information, actions);
         Shown += delegate { LauncherUpdate.CleanupPreviousBackup(); };
         Controls.Add(layout);
+        NativeTheme.Attach(this);
         Shown += delegate { RefreshList(); };
+        Shown += async delegate { await CheckModuleUpdates(false); };
     }
 
     sealed class ThemeButton : Button
@@ -206,7 +210,7 @@ public sealed partial class Manager : Form
     static string ModuleState(Module m,Manifest manifest,int detected,string installedVersion)
     {
         string state=manifest!=null?(manifest.Disabled?"Отключён":"Под управлением"):(detected>0?"Установлен вручную":"Не установлен");
-        string latest=m.Resource!=null?BundledVersion(m.Id):m.Id=="together"?KnownTogetherVersion:null;
+        string latest=m.Resource!=null?AvailableModuleVersion(m):m.Id=="together"?KnownTogetherVersion:null;
         if((manifest!=null||detected>0)&&latest!=null&&ModCatalog.CompareVersions(installedVersion,latest)==ModCatalog.VersionComparison.Older)state+=" · есть обновление";
         return state;
     }
@@ -215,10 +219,11 @@ public sealed partial class Manager : Form
         try
         {
             string root = Validate(game.Text, false);
+            selectedGameVersion=ReadGameVersion(root);
             Directory.CreateDirectory(SettingsDir); File.WriteAllText(Path.Combine(SettingsDir, "game-path.txt"), root);
             int index = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : 0;
             list.BeginUpdate();
-            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m),ModuleGameVersion(m,version) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
+            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m),ModuleGameVersion(m,version,mf) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
             finally { list.EndUpdate(); }
             AppendCommunityRows(root);
             UpdateDetails();
@@ -369,16 +374,17 @@ public sealed partial class Manager : Form
     static bool KnownTogether(string p){string[] names={"CasualtiesMP.dll","opus.dll","OpusSharp.Core.dll","RefMagic.dll","LiteNetLib.dll","LiteEntitySystem.dll","System.Runtime.CompilerServices.Unsafe.dll","K4os.Compression.LZ4.dll","Multiupdater.dll"};return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)&&names.Contains(Path.GetFileName(p),StringComparer.OrdinalIgnoreCase);}
     static IEnumerable<string> EnumerateSafe(string root,string dir){Under(root,dir.Substring(root.Length+1));foreach(string f in Directory.GetFiles(dir)){Under(root,f.Substring(root.Length+1));yield return f;}foreach(string child in Directory.GetDirectories(dir)){Under(root,child.Substring(root.Length+1)+"/test");foreach(string f in EnumerateSafe(root,child))yield return f;}}
     static string VersionOf(string root,Module m,Manifest mf){IEnumerable<string> paths=mf!=null?mf.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(f=>Under(root,Actual(mf,f))):Detect(root,m).Where(p=>p.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(p=>Under(root,p));foreach(string p in paths.OrderBy(p=>Path.GetFileName(p).Equals(m.Dll,StringComparison.OrdinalIgnoreCase)?0:1)){try{return AssemblyName.GetAssemblyName(p).Version.ToString();}catch{}}return "—";}
-    static string ModuleGameVersion(Module module,string installedVersion=null)
+    static string ModuleGameVersion(Module module,string installedVersion=null,Manifest manifest=null)
     {
+        if(manifest!=null&&manifest.GameVersions!=null&&manifest.GameVersions.Length>0)return String.Join(", ",manifest.GameVersions);
         string version=installedVersion;if(String.IsNullOrWhiteSpace(version)||version=="—")version=BundledVersion(module.Id);
         System.Version parsed;if(!System.Version.TryParse(version,out parsed))return "Не указана";
         string numeric=parsed.Major+"."+parsed.Minor+"."+Math.Max(0,parsed.Build);
-        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5"||numeric=="0.2.6")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
+        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5"||numeric=="0.2.6"||numeric=="0.2.7")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
         if(module.Id=="wiki"){if(numeric=="0.2.1")return "1.0.2 · WIP";if(numeric=="0.2.0")return "1.0.1 · WIP";}
         return "Не указана";
     }
-    static string Available(Module m){return m.Resource != null ? BundledVersion(m.Id) + " (в EXE)" : m.Id=="together"?(KnownTogetherVersion??"Проверить fullgame-релиз"):"1.0.2, совместимость не подтверждена";}
+    static string Available(Module m){return m.Resource != null ? (RecommendedPackage(m)==null?BundledVersion(m.Id)+" (в EXE)":RecommendedPackage(m).Version+" (онлайн)") : m.Id=="together"?(KnownTogetherVersion??"Проверить fullgame-релиз"):"1.0.2, совместимость не подтверждена";}
     static string Source(Module m){return m.Id=="together"?"https://github.com/creaturefeaturelarry/casualties-together/releases":m.Id=="unlock"?"https://www.nexusmods.com/scavprototype/mods/884":"bundled";}
     static string ScanText(string root){return Json.Serialize(VisibleModules(root).Select(m=>new{module=m.Id,available=Available(m),source=Source(m),compatibility=m.Id=="unlock"?"unverified":m.Id=="together"?"read release notes":"game 1.0.2",managed=Load(root,m)!=null,disabled=Load(root,m)!=null&&Load(root,m).Disabled,version=VersionOf(root,m,Load(root,m)),detected=Detect(root,m)}).ToArray());}
     // Each operation journals every touched byte, including the manifest.
@@ -431,8 +437,13 @@ public sealed partial class Manager : Form
         }
         return failures;
     }
-    static void RequireGameVersion(string root){string path=Under(root,"CasualtiesUnknown_Data/Lang/EN.json");if(!File.Exists(path))throw new Exception("Не удалось определить версию игры: отсутствует CasualtiesUnknown_Data/Lang/EN.json. Перевод и справочник рассчитаны на игру 1.0.2.");Dictionary<string,object> lang;try{lang=Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(path));}catch{throw new Exception("Не удалось прочитать версию игры из Lang/EN.json. Файлы модулей не изменены.");}object version;if(lang==null||!lang.TryGetValue("version",out version)||Convert.ToString(version)!="1.0.2")throw new Exception("Эта сборка перевода и справочника поддерживает только Casualties: Unknown 1.0.2. Найдена другая или неизвестная версия; файлы модулей не изменены.");}
-    static void Install(string root,Module m,Dictionary<string,byte[]> files,string version){if(m.Id=="unlock")throw new InvalidOperationException("Character Unlock удалён из встроенных модулей; установка через эту карточку недоступна.");if(m.Id=="russian"||m.Id=="wiki")RequireGameVersion(root);Manifest old=Load(root,m);CheckOwned(root,old);if((m.Id=="russian"||m.Id=="wiki")&&File.Exists(Under(root,"BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll")))throw new Exception("Обнаружен прежний объединённый RuFieldGuide. Удалите его предыдущим установщиком перед установкой отдельных модулей. Журнал открытий будет сохранён.");if(old!=null&&old.Disabled)throw new Exception("Сначала включите модуль перед обновлением.");if(m.Id!="bepinex"&&!File.Exists(Under(root,"BepInEx/core/BepInEx.dll")))throw new Exception("Сначала установите BepInEx отдельным модулем.");if(old==null&&Detect(root,m).Count>0)throw new Exception("Обнаружена ручная установка. Проверьте список и нажмите «Управлять модом…» перед обновлением.");var oldFiles=old==null?new List<Item>():old.Files;foreach(string rel in files.Keys){Under(root,rel);if(File.Exists(Under(root,rel))&&!oldFiles.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл не принадлежит модулю: "+rel+". Он сохранён без изменений.");foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){Manifest om=Load(root,other);if(om!=null&&om.Files.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл принадлежит модулю "+other.Name+": "+rel);}}var next=new Manifest{Module=m.Id,Version=version,Files=files.Select(kv=>new Item{Path=kv.Key,Hash=Hash(kv.Value)}).ToList()};var writes=new Dictionary<string,byte[]>(files,StringComparer.OrdinalIgnoreCase);writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(next)));Transaction(root,writes,oldFiles.Where(f=>!files.ContainsKey(f.Path)).Select(f=>f.Path).ToList(),"install-"+m.Id);}
+    static void RequireGameVersion(string root){RequireGameVersion(root,new[]{"1.0.2"});}
+    static void RequireGameVersion(string root,string[] supported)
+    {
+        string current=ReadGameVersion(root);
+        if(String.IsNullOrEmpty(current)||supported==null||!supported.Contains(current,StringComparer.Ordinal))throw new InvalidDataException("Пакет рассчитан на игру "+String.Join(", ",supported??new string[0])+". Найдена "+(current??"неизвестная версия")+"; файлы модулей не изменены.");
+    }
+    static void Install(string root,Module m,Dictionary<string,byte[]> files,string version,string[] supportedGames=null){if(m.Id=="unlock")throw new InvalidOperationException("Character Unlock удалён из встроенных модулей; установка через эту карточку недоступна.");string[] packageGames=PackageGameVersions(m,files,supportedGames);if(m.Id=="russian"||m.Id=="wiki")RequireGameVersion(root,packageGames);Manifest old=Load(root,m);CheckOwned(root,old);if((m.Id=="russian"||m.Id=="wiki")&&File.Exists(Under(root,"BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll")))throw new Exception("Обнаружен прежний объединённый RuFieldGuide. Удалите его предыдущим установщиком перед установкой отдельных модулей. Журнал открытий будет сохранён.");if(old!=null&&old.Disabled)throw new Exception("Сначала включите модуль перед обновлением.");if(m.Id!="bepinex"&&!File.Exists(Under(root,"BepInEx/core/BepInEx.dll")))throw new Exception("Сначала установите BepInEx отдельным модулем.");if(old==null&&Detect(root,m).Count>0)throw new Exception("Обнаружена ручная установка. Проверьте список и нажмите «Управлять модом…» перед обновлением.");var oldFiles=old==null?new List<Item>():old.Files;foreach(string rel in files.Keys){Under(root,rel);if(File.Exists(Under(root,rel))&&!oldFiles.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл не принадлежит модулю: "+rel+". Он сохранён без изменений.");foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){Manifest om=Load(root,other);if(om!=null&&om.Files.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл принадлежит модулю "+other.Name+": "+rel);}}var next=new Manifest{Module=m.Id,Version=version,GameVersions=packageGames,Files=files.Select(kv=>new Item{Path=kv.Key,Hash=Hash(kv.Value)}).ToList()};var writes=new Dictionary<string,byte[]>(files,StringComparer.OrdinalIgnoreCase);writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(next)));Transaction(root,writes,oldFiles.Where(f=>!files.ContainsKey(f.Path)).Select(f=>f.Path).ToList(),"install-"+m.Id);}
     static void Remove(string root,Module m){Manifest old=Load(root,m);if(old==null)throw new Exception("Ручная установка не удаляется автоматически.");CheckOwned(root,old);if(m.Id=="bepinex"){string dir=Under(root,"BepInEx/plugins");string patchers=Under(root,"BepInEx/patchers");if((Directory.Exists(dir)&&EnumerateSafe(root,dir).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)))||(Directory.Exists(patchers)&&EnumerateSafe(root,patchers).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase))))throw new Exception("Сначала удалите моды: загрузчик используется plugins или patchers.");}var deletes=old.Files.Select(f=>Actual(old,f)).ToList();deletes.Add(State+m.Id+".json");Transaction(root,new Dictionary<string,byte[]>(),deletes,"remove-"+m.Id);}
     static void Toggle(string root,Module m,bool disabled){if(m.Id=="bepinex")throw new Exception("Общий загрузчик нельзя отключать этим способом.");Manifest old=Load(root,m);if(old==null)throw new Exception("Модуль не управляется менеджером.");CheckOwned(root,old);if(old.Disabled==disabled)return;var writes=new Dictionary<string,byte[]>();var deletes=new List<string>();foreach(Item f in old.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))){string source=Actual(old,f),dest=f.Path+(disabled?".cumm-disabled":"");if(File.Exists(Under(root,dest)))throw new Exception("Путь уже занят: "+dest);writes.Add(dest,File.ReadAllBytes(Under(root,source)));deletes.Add(source);}old.Disabled=disabled;writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(old)));Transaction(root,writes,deletes,(disabled?"disable-":"enable-")+m.Id);}
     static void Adopt(string root,Module m){if(Load(root,m)!=null)throw new Exception("Модуль уже управляется менеджером.");var files=Detect(root,m);if(files.Count==0)throw new Exception("Файлы не найдены.");var mf=new Manifest{Module=m.Id,Version="adopted",Files=files.Select(p=>new Item{Path=p,Hash=Hash(Under(root,p))}).ToList()};foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){var om=Load(root,other);if(om!=null&&om.Files.Any(f=>files.Contains(f.Path,StringComparer.OrdinalIgnoreCase)))throw new Exception("Некоторые файлы уже принадлежат другому модулю.");}var writes=files.ToDictionary(p=>p,p=>File.ReadAllBytes(Under(root,p)));writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(mf)));Transaction(root,writes,new List<string>(),"adopt-"+m.Id);}

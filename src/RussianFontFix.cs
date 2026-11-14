@@ -21,7 +21,7 @@ internal static class RussianFontFix
     private static ManualLogSource logger;
     private static Font retro;
     private static bool searchedResources, reportedFailure;
-    private sealed class Binding { internal TMP_FontAsset Font; internal Material Material; }
+    private sealed class Binding { internal TMP_FontAsset Font, OriginalFont; internal Material Material, OriginalMaterial; }
 
     internal static void Enable(Harmony harmony, ManualLogSource log)
     {
@@ -47,12 +47,6 @@ internal static class RussianFontFix
         if (String.IsNullOrEmpty(text)) return false;
         foreach (char c in text) if (c >= '\u0400' && c <= '\u04ff') return true;
         return false;
-    }
-    private static bool PixelFamily(TMP_FontAsset font)
-    {
-        if (!font) return false;
-        string label = (font.name + " " + font.faceInfo.familyName).ToLowerInvariant();
-        return label.Contains("retro") || label.Contains("dos") || label.Contains("consolefont") || label.Contains("unifont") || label.Contains("duneorange") || label.Contains("experimentieatcrayons");
     }
     private static bool Complete(TMP_FontAsset font)
     {
@@ -92,9 +86,10 @@ internal static class RussianFontFix
     private const int AtlasSize = 2048;
     private static TMP_FontAsset Choose(TMP_FontAsset source)
     {
-        if (privateFonts.Contains(source)) return source;
+        if (privateFonts.Contains(source) || OriginalCyrillic.IsGenerated(source)) return source;
         TMP_FontAsset result;
         if (fonts.TryGetValue(source, out result) && result) return result;
+        if (OriginalCyrillic.TryCreate(source, logger, out result)) { fonts[source] = result; return result; }
         Font native = NativeFor(source);
         // Bitmap shader variants may be stripped from this player build. A RASTER
         // font would make TMP's factory construct Material(null). Use one verified
@@ -185,6 +180,7 @@ internal static class RussianFontFix
     }
     private static Material DisplayMaterial(Material original, TMP_FontAsset target)
     {
+        if (OriginalCyrillic.IsGenerated(target)) return OriginalCyrillic.DisplayMaterial(original, target);
         ValidateAtlas(target);
         // The atlas is SDFAA. Copying a source bitmap shader with this texture
         // produces incorrect sampling even when _MainTex points to the right atlas.
@@ -213,48 +209,111 @@ internal static class RussianFontFix
         }
         return material;
     }
+    private static bool Covers(TMP_FontAsset font, string text)
+    {
+        if (!font) return false;
+        if (String.IsNullOrEmpty(text)) return true;
+        uint[] absent;
+        return font.HasCharacters(text, out absent, false, false);
+    }
+    private static string VisibleText(string text, bool richText)
+    {
+        if (!richText || String.IsNullOrEmpty(text)) return text;
+        // Inspect visible glyphs without rewriting TMP's input, sprite IDs or tags.
+        var visible = new System.Text.StringBuilder(text.Length);
+        bool noParse = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '<')
+            {
+                int end = text.IndexOf('>', i + 1, Math.Min(2048, text.Length - i - 1));
+                if (end >= 0)
+                {
+                    string body = text.Substring(i + 1, end - i - 1).Trim();
+                    string tag = body.TrimStart('/');
+                    int separator = tag.IndexOfAny(new[] { '=', ' ', '\t' });
+                    if (separator >= 0) tag = tag.Substring(0, separator);
+                    tag = tag.ToLowerInvariant();
+                    if (tag == "noparse") { noParse = !body.StartsWith("/", StringComparison.Ordinal); i = end; continue; }
+                    if (!noParse && IsFormattingTag(tag)) { if (tag == "br") visible.Append('\n'); i = end; continue; }
+                }
+            }
+            visible.Append(text[i]);
+        }
+        return visible.ToString();
+    }
+    private static bool IsFormattingTag(string name)
+    {
+        switch (name)
+        {
+            case "b": case "i": case "u": case "s": case "color": case "alpha": case "size": case "font": case "font-weight":
+            case "material": case "sprite": case "style": case "link": case "mark": case "br": case "align": case "voffset":
+            case "space": case "cspace": case "mspace": case "line-height": case "line-indent": case "indent": case "width":
+            case "margin": case "margin-left": case "margin-right": case "rotate": case "pos": case "gradient": case "nobr":
+            case "uppercase": case "lowercase": case "smallcaps": case "sub": case "sup": case "allcaps": return true;
+            default: return false;
+        }
+    }
+    private static void ApplyComponentMaterial(TMP_Text text)
+    {
+        text.UpdateMeshPadding();
+        if (text is TextMeshPro && UpdateWorldMaterial != null) UpdateWorldMaterial.Invoke(text, null);
+    }
+    private static void ReleaseBinding(TMP_Text text, Binding binding, bool restore)
+    {
+        if (restore && binding.OriginalFont)
+        {
+            text.font = binding.OriginalFont;
+            text.fontSharedMaterial = binding.OriginalMaterial ? binding.OriginalMaterial : binding.OriginalFont.material;
+            ApplyComponentMaterial(text);
+        }
+        bindings.Remove(text);
+        if (binding.Material) UnityEngine.Object.Destroy(binding.Material);
+    }
     private static void BeforeLayout(TMP_Text __instance)
     {
         if (!__instance || !__instance.font || !applying.Add(__instance)) return;
         try
         {
-            TMP_FontAsset source = __instance.font;
+            TMP_FontAsset current = __instance.font;
             Binding binding;
-            if (!bindings.TryGetValue(__instance, out binding))
+            bool bound = bindings.TryGetValue(__instance, out binding);
+            bool currentlyOwned = bound && current == binding.Font;
+            TMP_FontAsset original = currentlyOwned ? binding.OriginalFont : current;
+            Material originalMaterial = currentlyOwned ? binding.OriginalMaterial : __instance.fontSharedMaterial;
+            string visible = VisibleText(__instance.text, __instance.richText);
+            // Original Latin and fully covered Cyrillic keep the actual character's
+            // original baked typeface. Only missing Russian glyphs need a coherent
+            // whole-run fallback (including its punctuation).
+            if (!Cyrillic(visible) || Covers(original, visible))
             {
-                // Pixel-font roles are routed even for ".", "-" or a number-only
-                // component, so a separate punctuation run cannot retain another face.
-                if (!PixelFamily(source) && (!Cyrillic(__instance.text) || Complete(source))) return;
-                binding = new Binding(); bindings[__instance] = binding;
+                if (bound) ReleaseBinding(__instance, binding, currentlyOwned);
+                return;
             }
-            if (binding.Font != source)
+            if (!bound)
             {
-                TMP_FontAsset target = Choose(source);
-                Material display = DisplayMaterial(__instance.fontSharedMaterial, target);
+                binding = new Binding { OriginalFont = original, OriginalMaterial = originalMaterial };
+                bindings[__instance] = binding;
+            }
+            else if (!currentlyOwned)
+            {
+                binding.OriginalFont = original; binding.OriginalMaterial = originalMaterial;
+            }
+            TMP_FontAsset target = Choose(original);
+            if (current != target || __instance.fontSharedMaterial != binding.Material)
+            {
+                Material display = DisplayMaterial(originalMaterial, target);
                 Material previous = binding.Material;
-                __instance.font = target;
-                __instance.fontSharedMaterial = display;
+                __instance.font = target; __instance.fontSharedMaterial = display;
                 binding.Font = target; binding.Material = display;
-                __instance.UpdateMeshPadding();
-                // Use TMP's own world material pass BEFORE geometry, not a renderer
-                // overwrite after its material/submesh indices have already been built.
-                if (__instance is TextMeshPro && UpdateWorldMaterial != null) UpdateWorldMaterial.Invoke(__instance, null);
+                ApplyComponentMaterial(__instance);
                 if (previous) UnityEngine.Object.Destroy(previous);
             }
-            else if (__instance.fontSharedMaterial != binding.Material)
-            {
-                Material previous = binding.Material;
-                binding.Material = DisplayMaterial(__instance.fontSharedMaterial, binding.Font);
-                __instance.fontSharedMaterial = binding.Material;
-                __instance.UpdateMeshPadding();
-                if (__instance is TextMeshPro && UpdateWorldMaterial != null) UpdateWorldMaterial.Invoke(__instance, null);
-                if (previous) UnityEngine.Object.Destroy(previous);
-            }
-            AddTextGlyphs(binding.Font, __instance.text);
+            AddTextGlyphs(binding.Font, visible);
         }
         catch (Exception error)
         {
-            if (!reportedFailure) { reportedFailure = true; logger.LogWarning("Russian pixel font preparation skipped; original text retained: " + error.Message); }
+            if (!reportedFailure) { reportedFailure = true; logger.LogWarning("Russian font preparation skipped; original text retained: " + error.Message); }
         }
         finally { applying.Remove(__instance); }
     }

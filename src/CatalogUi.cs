@@ -21,7 +21,7 @@ public sealed partial class Manager
     private TabControl mainTabs;
     private ListView catalogList, inboxList;
     private TextBox catalogSearch, catalogDescription, inboxFolder;
-    private CheckBox showAdult, installedOnly, updatesOnly;
+    private CheckBox showAdult, installedOnly, updatesOnly, inboxShowUnknown;
     private Label catalogStatus, catalogHeading, catalogFacts, inboxStatus;
     private Button catalogNexus, catalogGithub, catalogImport, catalogAdopt;
     private Button catalogTagsButton, catalogTagsClear;
@@ -247,9 +247,12 @@ public sealed partial class Manager
         managedCommunity=CommunityInstaller.ListInstalled(root);var ids=new HashSet<string>();
         foreach(var record in managedCommunity)
         {
-            ids.Add(record.Id);var entry=communityEntries.FirstOrDefault(e=>e.Id==record.Id);ModCatalog.InstalledInfo info=null;if(entry!=null)communityDetected.TryGetValue(entry.Id,out info);
+            ids.Add(record.Id);int present=CommunityInstaller.CountPresent(root,record);
+            if(present==0)continue;
+            var entry=communityEntries.FirstOrDefault(e=>e.Id==record.Id);ModCatalog.InstalledInfo info=null;if(entry!=null)communityDetected.TryGetValue(entry.Id,out info);
             var selection=new CommunitySelection{Record=record,Entry=entry,Info=info};
-            list.Items.Add(new ListViewItem(new[]{record.Name,record.Disabled?"Отключён":"Из каталога · под управлением",record.Version+" (пакет)",entry==null?"Нужен каталог":UpdateText(entry),InstalledGameVersion(entry,info,record.Version)}){Tag=selection});
+            string state=present<record.Files.Count?"Установка неполная · "+present+" / "+record.Files.Count+" файлов":record.Disabled?"Отключён":"Из каталога · под управлением";
+            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+" (пакет)",entry==null?"Нужен каталог":UpdateText(entry),InstalledGameVersion(entry,info,record.Version)}){Tag=selection});
         }
         foreach(var e in communityEntries)
         {
@@ -314,7 +317,7 @@ public sealed partial class Manager
         var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var folder=new TableLayoutPanel{Dock=DockStyle.Fill,AutoSize=true,ColumnCount=3};folder.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));folder.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));folder.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));inboxFolder=DarkText(false);inboxFolder.Text=DownloadsFolder();inboxFolder.Margin=new Padding(0,8,10,8);var choose=MakeButton("Папка ZIP…",135,false);var refresh=MakeButton("Проверить",125,false);choose.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK){inboxFolder.Text=d.SelectedPath;Directory.CreateDirectory(SettingsDir);File.WriteAllText(Path.Combine(SettingsDir,"downloads-path.txt"),d.SelectedPath);StartInboxWatcher();}};refresh.Click+=async delegate{await ScanInbox();};folder.Controls.Add(inboxFolder,0,0);folder.Controls.Add(choose,1,0);folder.Controls.Add(refresh,2,0);layout.Controls.Add(folder,0,0);
         inboxList=DarkList("ZIP-архив","Мод","Состояние");layout.Controls.Add(inboxList,0,1);
-        var buttons=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true};var installZip=MakeButton("Установить выбранный ZIP",245,true);installZip.Click+=delegate{if(inboxList.SelectedItems.Count==0)return;var item=(ArchiveInbox.Item)inboxList.SelectedItems[0].Tag;if(item.Mod==null){MessageBox.Show(this,"Не удалось однозначно определить мод. Найдите его в каталоге и нажмите «Установить ZIP…».","Выберите мод");return;}InstallCommunityZip(item.Mod,item.Path,item.Mod.ArchiveSha256,item.Mod.Version);};var open=MakeButton("Открыть папку",165,false);open.Click+=delegate{if(Directory.Exists(inboxFolder.Text))Process.Start(inboxFolder.Text);};buttons.Controls.AddRange(new Control[]{installZip,open});layout.Controls.Add(buttons,0,2);
+        var buttons=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true};var installZip=MakeButton("Установить выбранный ZIP",245,true);installZip.Click+=delegate{if(inboxList.SelectedItems.Count==0)return;var item=(ArchiveInbox.Item)inboxList.SelectedItems[0].Tag;if(item.Mod==null&&new[]{"russian","wiki","together","bepinex"}.Contains(item.Kind)){ImportKnownArchive(item);return;}if(item.Mod==null){MessageBox.Show(this,"Не удалось однозначно определить мод. Найдите его в каталоге и нажмите «Установить ZIP…».","Выберите мод");return;}InstallCommunityZip(item.Mod,item.Path,item.Mod.ArchiveSha256,item.Mod.Version);};var open=MakeButton("Открыть папку",165,false);open.Click+=delegate{if(Directory.Exists(inboxFolder.Text))Process.Start(inboxFolder.Text);};inboxShowUnknown=new CheckBox{Text="Показывать все ZIP",AutoSize=true,ForeColor=Muted,Margin=new Padding(18,12,0,0)};inboxShowUnknown.CheckedChanged+=async delegate{await ScanInbox();};buttons.Controls.AddRange(new Control[]{installZip,open,inboxShowUnknown});layout.Controls.Add(buttons,0,2);
         inboxStatus=new Label{AutoSize=true,ForeColor=Muted,Text="Здесь появляются завершённые ZIP-загрузки. Установка только после подтверждения. Каталог должен быть загружен."};layout.Controls.Add(inboxStatus,0,3);page.Controls.Add(layout);
         inboxTimer=new System.Windows.Forms.Timer{Interval=3000};inboxTimer.Tick+=async delegate{inboxTimer.Stop();await ScanInbox();};
     }
@@ -340,10 +343,10 @@ public sealed partial class Manager
         if(scanningInbox||inboxList==null||!Directory.Exists(inboxFolder.Text))return;scanningInbox=true;
         try
         {
-            string folder=inboxFolder.Text;var entries=communityEntries.ToList();var items=await Task.Run(()=>ArchiveInbox.Scan(folder,entries,inboxCache));if(IsDisposed)return;
-            inboxList.Items.Clear();foreach(var item in items)inboxList.Items.Add(new ListViewItem(new[]{Path.GetFileName(item.Path),item.Mod==null?"Определите через каталог":item.Mod.Name,item.State}){Tag=item});
-            inboxStatus.Text="Проверены последние "+items.Count+" ZIP. Новые загрузки подхватываются автоматически; старый архив можно выбрать через каталог.";
-            if(items.Any(item=>item.State=="Загрузка ещё не завершена"))inboxTimer.Start();
+            string folder=inboxFolder.Text;bool all=inboxShowUnknown.Checked;var entries=communityEntries.ToList();var items=await Task.Run(()=>ArchiveInbox.Scan(folder,entries,inboxCache,all));if(IsDisposed)return;if(folder!=inboxFolder.Text||all!=inboxShowUnknown.Checked){inboxTimer.Start();return;}
+            inboxList.Items.Clear();foreach(var item in items)inboxList.Items.Add(new ListViewItem(new[]{Path.GetFileName(item.Path),item.Mod==null?item.DisplayName:item.Mod.Name,item.State}){Tag=item});
+            inboxStatus.Text="Показано "+items.Count+" архивов · "+(all?"включены неизвестные ZIP":"только найденные по хешу или структуре модов Casualties")+". Установка всегда после проверки файлов.";
+            if(ArchiveInbox.HasPendingFiles)inboxTimer.Start();
         }
         catch(Exception error){inboxStatus.Text="Проверка загрузок: "+error.Message;}
         finally{scanningInbox=false;}
@@ -404,7 +407,7 @@ public sealed partial class Manager
             bool allowed=archive?(host=="github.com"||redirect>0&&(host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com")):host=="api.github.com";
             if(!allowed||current.Scheme!="https"||!current.IsDefaultPort||current.UserInfo.Length!=0||current.Fragment.Length!=0)throw new InvalidDataException("Неожиданный адрес сервера GitHub.");
             int remaining=deadlineMs-(int)timer.ElapsedMilliseconds;if(remaining<=0)throw new WebException("Истекло время загрузки GitHub.",WebExceptionStatus.Timeout);
-            var request=(HttpWebRequest)WebRequest.Create(current);request.UserAgent="CasualtiesModManager/0.5.3";request.AllowAutoRedirect=false;request.Timeout=request.ReadWriteTimeout=remaining;request.KeepAlive=false;
+            var request=(HttpWebRequest)WebRequest.Create(current);request.UserAgent="CasualtiesModManager/0.5.4";request.AllowAutoRedirect=false;request.Timeout=request.ReadWriteTimeout=remaining;request.KeepAlive=false;
             using(var response=(HttpWebResponse)request.GetResponse())
             {
                 int status=(int)response.StatusCode;if(status>=300&&status<400){string location=response.Headers["Location"];if(redirect==5||String.IsNullOrWhiteSpace(location))throw new InvalidDataException("Некорректное перенаправление GitHub.");current=new Uri(current,location);continue;}

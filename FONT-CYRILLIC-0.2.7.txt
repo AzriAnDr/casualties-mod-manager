@@ -1,0 +1,36 @@
+Original handwritten Cyrillic extension — final source freeze
+
+Owned source changes:
+- src/RussianFontFix.cs: original Latin-only text and fully covered original Cyrillic stay on their original face; pooled components restore original font/material when returning to Latin. Three supported handwritten fonts are extended before the working coherent pixel fallback is considered.
+- NEW src/OriginalCyrillic.cs: runtime-only private extension. No extracted game font, glyph bitmap, atlas or original-font binary is included in public deliverables.
+
+Proven original resources (game1.0.2 resources.assets, typed metadata extraction):
+- DuneOrange_B: Orange Book,74 baked characters,0 Cyrillic; source Font absent; RASTER4118.
+- ExperimentIEatCrayons: i eat crayons,126 baked characters,0 Cyrillic; source Font absent; RASTER4118.
+- MilkyOnlyYou: Only You,96 baked characters,0 Cyrillic; source Font absent; RASTER4118.
+The game's native Retro/Unifont/Liberation/DOS files cannot reconstruct those original handwritten typefaces. Therefore new Cyrillic is custom approximation/composition, never claimed to be font-author original artwork.
+
+Runtime design:
+- Clone font metadata, every original glyph and every character record into private objects.
+- Copy original atlas pixels unchanged into the bottom-left region of a private2048 atlas. Original Latin glyph indices, metrics and rectangles are checked unchanged before applying it.
+- Reuse exact original Latin lookalikes where appropriate; build other Russian glyphs using measured native H stroke weight, native I alpha-brush texture, mirrored/cropped/composed donor glyphs and custom handwritten skeletons.
+- Add all66 Russian letters includingЁ/ё and missing ASCII/common punctuation. Ellipsis/numero receive real glyph designs, not semantic-loss substitutions.
+- Ш/Щ in BOTH cases use three distinct slightly leaning stems plus bottom join, never W. Щ has the right descender.
+- Ц in BOTH cases locates a real opaque U pixel near the lower-right curve, draws a visible bottom connection to the descender, avoiding a floating tail.
+- Preserve source face metrics and existing loaded RASTER shader/material family. No TMP font factory or stripped mobile-bitmap shader lookup is used for these three fonts.
+- Missing/unsupported source, unknown shader/atlas format or packing failure retains the already working coherent pixel fallback.
+
+Actual tests:
+- The runtime C# Raster/Designer classes were extracted verbatim and compiled against inert metadata stubs, with the actual privately extracted game alpha atlases and glyph metadata as fixtures.
+- All3 roles generated all66 Russian letters; every designed glyph is nonblank, metrics/advances are finite and positive, and every required new glyph fits2048x2048 without overlapping the original atlas region.
+- Final actual-runtime recipe sheets wrap17/16 upper and lower glyphs, showing all66 rather than clipping rightmost letters.
+- Coordinator reviewed the refined Experiment v6 sheet and earlier refined sheets for the other2 roles; final full plugin/manager build passed0warnings0errors.
+- Coordinator reports Defender scan clean. This is not a guarantee for every antivirus or future build.
+
+Evidence:
+RUNTIME-DESIGN-TESTS.json — machine-readable role counts and packing bounds.
+{DuneOrange_B,ExperimentIEatCrayons,MilkyOnlyYou}/review-v6.png — private previews from the actual C# runtime recipes.
+DesignerTests.cs / DesignerSubject.cs / DesignerStubs.cs — isolated extraction test harness; no game or launcher constructor is invoked.
+
+Limits:
+No game/UI launch, running-game mutation, injection or installed-game writes were performed. GPU atlas-readback, actual TMP rendering, animation, scene changes, masks and user screenshot comparison remain untested in game. Legible offline custom Cyrillic does not imply exact original font-author design or perfect live typography. All extracted assets and private previews are excluded from public asset bundles.

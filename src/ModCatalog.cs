@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -226,13 +226,13 @@ public static class ModCatalog
         try{
             string file=Under(root,State+"community/"+e.Id+".json");if(!File.Exists(file))return null;var d=Json.Deserialize<Dictionary<string,object>>(ReadBounded(file,1024*1024));object id;if(d==null||!d.TryGetValue("Id",out id)||!(id is string)||(string)id!=e.Id)return null;
             object flag;bool disabled=d.TryGetValue("Disabled",out flag)&&flag is bool&&(bool)flag;var info=new InstalledInfo{Managed=true,Disabled=disabled,Confidence="managed-manifest",ArchiveVersion=Text(d,"Version",128)};object files;if(!d.TryGetValue("Files",out files)||!(files is IEnumerable))return null;
-            var found=new List<ScanFile>();int count=0;
+            var found=new List<ScanFile>();int count=0;bool anyPresent=false;
             foreach(object raw in (IEnumerable)files){
                 if(++count>4096)throw new InvalidDataException("Слишком много файлов манифеста.");var record=raw as Dictionary<string,object>;if(record==null)return null;string relative=Text(record,"Path",1024),expected=Text(record,"Hash",128);if(String.IsNullOrWhiteSpace(relative)||!IsHash(expected))return null;
-                Under(root,relative);relative=relative.Replace('\\','/');if(!relative.StartsWith("BepInEx/plugins/",StringComparison.OrdinalIgnoreCase)&&!relative.StartsWith("BepInEx/patchers/",StringComparison.OrdinalIgnoreCase))continue;if(!relative.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))continue;
+                Under(root,relative);relative=relative.Replace('\\','/');if(!relative.StartsWith("BepInEx/plugins/",StringComparison.OrdinalIgnoreCase)&&!relative.StartsWith("BepInEx/patchers/",StringComparison.OrdinalIgnoreCase))continue;bool dll=relative.EndsWith(".dll",StringComparison.OrdinalIgnoreCase);if(File.Exists(Under(root,relative+(disabled&&dll?".cumm-disabled":""))))anyPresent=true;else info.Ambiguous=true;if(!dll)continue;
                 string actual=relative+(disabled?".cumm-disabled":"");ScanFile match=scan.Files.FirstOrDefault(f=>String.Equals(f.Relative,actual,StringComparison.OrdinalIgnoreCase));info.Files.Add(actual);if(match==null||!String.Equals(match.Hash,expected,StringComparison.OrdinalIgnoreCase))info.Ambiguous=true;if(match!=null)found.Add(match);
             }
-            info.Installed=found.Count>0;info.Partial=info.Ambiguous;info.MatchReason=info.Ambiguous?"Управляемая установка: DLL отсутствуют или изменены":"Принадлежность подтверждена манифестом менеджера и SHA-256";FillVersions(info,found);return info;
+            if(!anyPresent){info.Ambiguous=false;info.ArchiveVersion=null;info.Managed=false;info.MatchReason="Файлы удалены вручную";return info;}info.Installed=found.Count>0;info.Partial=info.Ambiguous;info.MatchReason=info.Ambiguous?"Управляемая установка: DLL отсутствуют или изменены":"Принадлежность подтверждена манифестом менеджера и SHA-256";FillVersions(info,found);return info;
         }catch{return null;}
     }
     static void FillVersions(InstalledInfo info,IEnumerable<ScanFile>files){foreach(ScanFile f in files){if(IsHash(f.Hash))info.HashesByFile[f.Relative]=f.Hash;if(f.Version!=null)info.VersionsByFile[f.Relative]=f.Version;}string[] versions=info.VersionsByFile.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();info.Version=versions.Length==1?versions[0]:null;}

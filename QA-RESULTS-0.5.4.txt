@@ -1,0 +1,15 @@
+0.5.4 / RU 0.2.7 — checks and limitations
+
+Build: both Unity plugins and x64 WinForms manager compile without warnings or errors.
+Independent packages: 67 isolated ModuleCatalog checks; 9 manager integration checks (compatibility, future game1.0.3 locale/wiki manifest, persisted compatibility, remote downgrade rejection). Live independent channel Check and verified downloads of Russian/wiki/official BepInEx PASS, no installs. Found/fixed .NET TLS12 setup order before constructing the first request; release client and65synthetic checks rerun after fix.
+Downloads: 25 isolated checks; unknown generic BepInEx ZIPs now hidden unless Show all, only known CU DLL names provide tentative relevance. Exact archive SHA alone establishes catalog identity. No assemblies executed.
+Community installer:29synthetic install/remove/repair tests in isolated game roots, including plugins wrapper normalization, short recoverable transaction backup layout, legacy nesting migration, missing files and manual removal, modified/foreign file protection, rollback.
+Read-only actual installation: nexus-817 manifest contains456 recorded files, zero present; catalog detection returns NotInstalled rather than update/managed status. No production files changed.
+UI: offscreen DrawToBitmap at1100x880,950x760,1400x1000; catalog dimensions pass. MyMods/Downloads offscreen at1100x880. No Show/Application.Run, no game launch; white header tails/corners and native scroll controls reviewed.
+Fonts: original3handwritten baked raster faces extended at runtime with custom Cyrillic approximations. Private atlas/source tables/material are cloned; original Latin preserved. Offline glyph recipe coverage/atlas tests recorded in font report; GPU material/shader and in-game text must be tested by user.
+
+No live gameplay, Together co-op, Steam network or game GPU rendering was tested. No installed plugin/config/save was changed. A Microsoft verdict for old0.5.0 is not a verdict on this build.
+
+Final EXE SHA256: d2f3b01c7edbf27871797e118831c131a83dcfa2c6b12f9268e4c2366c301563
+Defender: signatures updated to1.463.299.0, antivirus and realtime protection enabled. Custom scan DA96E293-3ECE-4F44-BD84-3A9BBB4F79AC completed(event1001), no new threat detections. Initial forward-slash ScanPath request failed0x80508023; canonical Windows path scan succeeded. No exclusions/security disablement.
+Font design:3/3actual extracted C#recipe tests passed,66RU each; source atlas region preserved, all glyphs fit2048. See FONT-CYRILLIC-0.2.7.txt. Usermarked stems/joins/ШЩ shapes andЦconnection refined before release.
