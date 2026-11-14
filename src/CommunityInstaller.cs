@@ -103,7 +103,7 @@ public static class CommunityInstaller
         if (!path.StartsWith("BepInEx/plugins/", StringComparison.OrdinalIgnoreCase) || path.Length <= 16) throw Fail("Разрешены только файлы внутри BepInEx/plugins: " + path);
         string leaf = Path.GetFileName(path);
         if (path.EndsWith(".cumm-disabled", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(leaf, "\\.(exe|com|bat|cmd|ps1|vbs|js|msi|lnk|url|sys)$", RegexOptions.IgnoreCase)) throw Fail("Недопустимый исполняемый файл: " + path);
-        string[] reserved = { "CuRussian", "CuWiki", "Together", "SkipCharacterUnlock", "RuFieldGuide" };
+        string[] reserved = { "CuRussian", "CuWiki", "Together", "RuFieldGuide" };
         string tail = path.Substring("BepInEx/plugins/".Length);
         foreach (string r in reserved) if (tail.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase) || tail.Equals(r + ".dll", StringComparison.OrdinalIgnoreCase)) throw Fail("Для этого встроенного модуля используйте отдельную карточку: " + r);
         if (leaf.Equals("winhttp.dll", StringComparison.OrdinalIgnoreCase) || leaf.Equals("BepInEx.dll", StringComparison.OrdinalIgnoreCase) || leaf.Equals("doorstop_config.ini", StringComparison.OrdinalIgnoreCase)) throw Fail("Загрузчик не является обычным плагином.");

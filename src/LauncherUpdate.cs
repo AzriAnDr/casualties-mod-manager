@@ -22,7 +22,7 @@ public static class LauncherUpdate
     const int MaximumFeedBytes = 256 * 1024;
     static readonly string UpdateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CasualtiesModManager", "updates");
 
-    // JSON schema: {"version":"0.3.1","url":"https://github.com/OWNER/REPO/releases/download/TAG/FILE.exe","sha256":"64 lowercase hex characters","notes":"..."}
+    // JSON schema: version, url, sha256, notes. Only this project's exact release EXE and matching v<version> tag are accepted.
     public static UpdateInfo Check(string feedUrl, string currentVersion)
     {
         ParseVersion(currentVersion);
@@ -113,7 +113,8 @@ public static class LauncherUpdate
     static void ValidateInfo(UpdateInfo info)
     {
         if (info == null) throw new ArgumentNullException("info");
-        ParseVersion(info.Version); ValidateUrl(info.DownloadUrl, true, true); ValidateHash(info.Sha256);
+        ParseVersion(info.Version); Uri download = ValidateUrl(info.DownloadUrl, true, true); ValidateHash(info.Sha256);
+        if (download.AbsolutePath != TrustedReleasePrefix + "download/v" + info.Version + "/" + TrustedExecutableName) throw new InvalidDataException("Тег EXE не совпадает с версией в JSON обновления.");
         if (info.Notes == null || info.Notes.Length > 65536) throw new InvalidDataException("Некорректное описание обновления.");
     }
     static System.Version ParseVersion(string text)
@@ -122,21 +123,41 @@ public static class LauncherUpdate
         if (String.IsNullOrEmpty(text) || text.Length > 32 || !System.Version.TryParse(text, out value) || value.Major < 0 || value.Minor < 0) throw new InvalidDataException("Некорректная числовая версия обновления: " + text);
         return new System.Version(value.Major, value.Minor, Math.Max(0, value.Build), Math.Max(0, value.Revision));
     }
+    const string TrustedReleasePrefix = "/AzriAnDr/casualties-mod-manager/releases/";
+    const string TrustedFeedPath = TrustedReleasePrefix + "latest/download/update.json";
+    const string TrustedExecutableName = "Casualties-ModManager.exe";
     static Uri ValidateUrl(string text, bool executable, bool initial)
     {
         Uri url;
-        if (!Uri.TryCreate(text, UriKind.Absolute, out url) || url.Scheme != "https" || !url.IsDefaultPort || url.UserInfo.Length != 0 || url.Fragment.Length != 0) throw new InvalidDataException("Обновления поддерживают только обычные HTTPS-адреса GitHub.");
+        if (!Uri.TryCreate(text, UriKind.Absolute, out url) || url.Scheme != "https" || !url.IsDefaultPort || url.UserInfo.Length != 0 || url.Fragment.Length != 0) throw new InvalidDataException("Обновления поддерживают только HTTPS-адреса официального репозитория.");
         string host = url.DnsSafeHost.ToLowerInvariant();
-        bool github = host == "github.com", raw = host == "raw.githubusercontent.com", asset = host == "release-assets.githubusercontent.com" || host == "objects.githubusercontent.com";
-        if ((!github && !raw && !(asset && !initial)) || (executable && initial && !github)) throw new InvalidDataException("Неподдерживаемый сервер обновления: " + host);
-        if (executable && github)
+        bool github = host == "github.com", asset = host == "release-assets.githubusercontent.com" || host == "objects.githubusercontent.com";
+        if (github)
         {
-            string[] pieces = Uri.UnescapeDataString(url.AbsolutePath).Split('/');
-            if (pieces.Length != 7 || pieces[1].Length == 0 || pieces[2].Length == 0 || pieces[3] != "releases" || pieces[4] != "download" || pieces[5].Length == 0 || !pieces[6].EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Файл обновления должен быть EXE из GitHub Releases.");
+            if (url.Query.Length != 0) throw new InvalidDataException("Параметры в адресе выпуска обновления запрещены.");
+            bool latestFeed = !executable && url.AbsolutePath == TrustedFeedPath;
+            string prefix = TrustedReleasePrefix + "download/";
+            if (!latestFeed)
+            {
+                if (!url.AbsolutePath.StartsWith(prefix, StringComparison.Ordinal)) throw new InvalidDataException("Обновление должно находиться в AzriAnDr/casualties-mod-manager.");
+                string[] suffix = url.AbsolutePath.Substring(prefix.Length).Split('/');
+                string name = executable ? TrustedExecutableName : "update.json";
+                if (suffix.Length != 2 || !IsReleaseTag(suffix[0]) || suffix[1] != name) throw new InvalidDataException("Неожиданное имя или тег файла обновления.");
+            }
+            if (initial && !executable && !latestFeed) throw new InvalidDataException("Разрешён только официальный latest/download/update.json.");
         }
+        else if (initial || !asset) throw new InvalidDataException("Неподдерживаемый сервер обновления: " + host);
         string decoded = Uri.UnescapeDataString(url.AbsolutePath);
         if (decoded.IndexOf('\\') >= 0 || decoded.Split('/').AnySegmentIsDot()) throw new InvalidDataException("Некорректный путь URL обновления.");
         return url;
+    }
+    static bool IsReleaseTag(string tag)
+    {
+        if (String.IsNullOrEmpty(tag) || tag[0] != 'v') return false;
+        string numeric = tag.Substring(1); System.Version parsed;
+        if (numeric.Length > 32 || !System.Version.TryParse(numeric, out parsed)) return false;
+        foreach (char c in numeric) if ((c < '0' || c > '9') && c != '.') return false;
+        return parsed.Major >= 0 && parsed.Minor >= 0;
     }
     static void Download(Uri initial, Stream output, int limit, bool executable)
     {
@@ -146,10 +167,11 @@ public static class LauncherUpdate
         for (int redirects = 0; redirects <= 5; redirects++)
         {
             ValidateUrl(current.AbsoluteUri, executable, redirects == 0);
+            if (executable && current.Host == "github.com" && current.AbsolutePath != initial.AbsolutePath) throw new InvalidDataException("Перенаправление изменяет тег EXE обновления.");
             var request = (HttpWebRequest)WebRequest.Create(current);
             int remaining = 20000 - (int)deadline.ElapsedMilliseconds;
             if (remaining <= 0) throw new WebException("Проверка или загрузка обновления превысила 20 секунд.", WebExceptionStatus.Timeout);
-            request.Method = "GET"; request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.UserAgent = "CasualtiesModManager-Updater/0.5.0"; request.KeepAlive = false;
+            request.Method = "GET"; request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.UserAgent = "CasualtiesModManager-Updater/0.5.1"; request.KeepAlive = false;
             using (var response = (HttpWebResponse)request.GetResponse())
             {
                 int code = (int)response.StatusCode;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using BepInEx;
@@ -6,9 +6,10 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
-[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.3")]
+[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.4")]
 public sealed class CuRussian : BaseUnityPlugin
 {
+    private const string SupportedGameVersion = "1.0.2";
     private Harmony harmony;
     private static CuRussian instance;
     private Language russian;
@@ -16,12 +17,12 @@ public sealed class CuRussian : BaseUnityPlugin
     private void Awake()
     {
         instance = this;
-        if (Application.version != "1.0.1") { Logger.LogWarning("This Russian package supports game 1.0.1; no changes applied to " + Application.version); return; }
+        if (Application.version != SupportedGameVersion) { Logger.LogWarning("This Russian package supports game " + SupportedGameVersion + "; no changes applied to " + Application.version); return; }
         try
         {
             string dir = Path.GetDirectoryName(typeof(CuRussian).Assembly.Location);
             russian = JsonConvert.DeserializeObject<Language>(File.ReadAllText(Path.Combine(dir, "ru-RU.json")));
-            if (russian == null || russian.main == null || russian.main.Count < 100) throw new InvalidDataException("Invalid Russian locale");
+            if (russian == null || russian.version != SupportedGameVersion || russian.main == null || russian.main.Count < 100 || russian.other == null) throw new InvalidDataException("Invalid Russian locale");
             var multiplayer = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(Path.Combine(dir, "together-ru.json")));
             foreach (var pair in multiplayer)
             {
@@ -39,7 +40,7 @@ public sealed class CuRussian : BaseUnityPlugin
             if (Config.Bind("Display", "UnifiedRussianFont", true, "Использовать один шрифт для кириллицы и пунктуации, чтобы знаки не смещались. Требуется перезапуск.").Value)
                 RussianFontFix.Enable(harmony, Logger);
             Apply();
-            Logger.LogInfo("Russian enabled: game 1.0.1, Together " + multiplayer.Count + " strings. No saved language preference changed.");
+            Logger.LogInfo("Russian enabled: game 1.0.2, Together " + multiplayer.Count + " strings. No saved language preference changed.");
         }
         catch (Exception e) { Logger.LogError("Russian locale was not applied: " + e); }
     }

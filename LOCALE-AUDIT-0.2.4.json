@@ -1,0 +1,64 @@
+{
+  "reference_version": "1.0.2",
+  "russian_plugin_version": "0.2.4",
+  "current_EN_matches_official_upstream": true,
+  "leaf_count": 5944,
+  "translated_nonstructural_leaves_excluding_metadata": 5733,
+  "structural_fields_preserved": 208,
+  "leaf_coverage_percent": 100,
+  "missing_leaves": [],
+  "extra_leaves": [],
+  "type_mismatches": [],
+  "all_container_shapes_match": true,
+  "new_english_content_keys": [
+    "/other/gamesetautocolorfavourite",
+    "/other/gamesetautocolorfavouritedsc",
+    "/other/runsetallowlayerendmovement",
+    "/other/runsetallowlayerendmovementdsc"
+  ],
+  "changed_english_content_keys": [
+    "/other/char1quirks"
+  ],
+  "changed_metadata_keys": [
+    "/version"
+  ],
+  "removed_english_keys": [],
+  "placeholder_mismatches": [],
+  "richtext_mismatches": [],
+  "new_changed_content_newline_mismatches": [],
+  "unchanged_English_allowlist": [
+    "/other/gamesetvsync",
+    "/other/hpoxygenamount",
+    "/character/0/braindamaged/22",
+    "/character/0/braindamaged/25",
+    "/character/1/braindamaged/2"
+  ],
+  "changed_RU_leaves_since_previous_package": 909,
+  "adopted_upstream_changed_leaves": 903,
+  "local_overrides_from_upstream": [
+    "/description",
+    "/main/antiserum",
+    "/other/antiserum",
+    "/other/gamesetautocolorfavourite",
+    "/other/gamesetautocolorfavouritedsc",
+    "/other/gamesetrpc",
+    "/other/runsetallowlayerendmovementdsc"
+  ],
+  "section_leaf_counts": {
+    "name": 1,
+    "description": 1,
+    "version": 1,
+    "main": 604,
+    "buildings": 261,
+    "moodles": 345,
+    "other": 1201,
+    "character": 3038,
+    "notes": 312,
+    "pdaNotes": 58,
+    "pauseQuotes": 122
+  },
+  "upstream_commit": "f88251a18f561130c0932b3b1f299c7a22ef4d61",
+  "upstream_url": "https://github.com/Orsoniks/scavgame-locale/blob/f88251a18f561130c0932b3b1f299c7a22ef4d61/release/ru-RU.json",
+  "game_en_sha256": "db5bcf5dd593ee5b420d29264b1e23dc1d36cb80a2b2fa3f003bf1054fae437a",
+  "final_ru_sha256": "8de396acdecb5027a8e88090842a21d6b4f31a6602ee03a791a925439d010a9b"
+}

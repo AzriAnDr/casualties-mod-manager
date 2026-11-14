@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Collections.Generic;
@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.0.0")]
-[assembly: AssemblyFileVersion("0.5.0.0")]
+[assembly: AssemblyVersion("0.5.1.0")]
+[assembly: AssemblyFileVersion("0.5.1.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.0";
+    const string LauncherVersion = "0.5.1";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -26,11 +26,14 @@ public sealed partial class Manager : Form
     public sealed class Module { public string Id, Name, Description, Prefix, Dll, Resource; public Module(string id,string name,string description,string prefix,string dll,string resource) { Id=id;Name=name;Description=description;Prefix=prefix;Dll=dll;Resource=resource; } }
     static readonly Module[] Catalog = {
         new Module("russian","Русский перевод","Перевод интерфейса и игровых текстов. Пакет уже встроен в EXE. Обновление из нового комплекта или ZIP; онлайн-репозитория этого плагина пока нет.","BepInEx/plugins/CuRussian/","CuRussian.dll","russian.zip"),
-        new Module("wiki","Справочник открытий","Отдельная внутриигровая энциклопедия. Пакет уже встроен в EXE. Обновление из нового комплекта или ZIP. Открытия сохраняются при удалении.","BepInEx/plugins/CuWiki/","CuWiki.dll","wiki.zip"),
+        new Module("wiki","Справочник открытий · WIP","В разработке (WIP). Экспериментальная внутриигровая энциклопедия; полнота и работа в игре ещё проверяются. Пакет уже встроен в EXE. Обновление из нового комплекта или ZIP. Открытия сохраняются при удалении.","BepInEx/plugins/CuWiki/","CuWiki.dll","wiki.zip"),
         new Module("together","Casualties Together","Совместная игра. ZIP последнего fullgame-релиза с GitHub; совместимость смотрите в описании релиза.","BepInEx/plugins/Together/","CasualtiesMP.dll",null),
         new Module("bepinex","BepInEx 5","Общий загрузчик. Установите до модов. Удаление блокируется, пока в plugins есть DLL.","BepInEx/core/","BepInEx.dll","Loader.zip"),
-        new Module("unlock","SkipCharacterUnlock","Мод VtLoader: все персонажи доступны с начала. Совместимость с игрой 1.0.1 и Together не подтверждена. Только ручной ZIP с Nexus Mods; импорт распознаёт SkipCharacterUnlock.dll.","BepInEx/plugins/SkipCharacterUnlock/","SkipCharacterUnlock.dll",null)
     };
+    // Kept solely to manage/remove installations made by older manager versions.
+    static readonly Module RetiredUnlock = new Module("unlock","Character Unlock · прежняя установка","Больше не входит в предлагаемые модули. Здесь можно отключить или удалить прежнюю управляемую установку.","BepInEx/plugins/SkipCharacterUnlock/","SkipCharacterUnlock.dll",null);
+    static IEnumerable<Module> AllModules { get { return Catalog.Concat(new[]{RetiredUnlock}); } }
+    static IEnumerable<Module> VisibleModules(string root) { return root != null && (Load(root,RetiredUnlock)!=null || Detect(root,RetiredUnlock).Count>0) ? AllModules : Catalog; }
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength=16*1024*1024 };
     static readonly Dictionary<string,string> BundledVersions = ReadBundledVersions();
     static Dictionary<string,string> ReadBundledVersions()
@@ -146,7 +149,7 @@ public sealed partial class Manager : Form
         install.Click += delegate { ActionRun("установка / обновление", delegate(string root, Module m) { if(m.Id!="bepinex"&&!EnsureLoaderForCommunity(root,true))return null; if (m.Id == "together") return OnlineInstall(root, m); using (Stream s = Resource(m)) { var files = ReadZip(s, m); if (!Preview(files, "Установить или обновить «" + m.Name + "»?")) return null; bool update = Load(root, m) != null; Install(root, m, files, "bundled"); return update ? "Обновлён из комплекта" : "Установлен из комплекта"; } }); };
         remove.Click += delegate { ActionRun("удаление", delegate(string root, Module m) { Manifest old = Load(root, m); if (old == null) throw new Exception("Для ручной установки сначала выберите «Управлять модом…» и проверьте найденные файлы."); if (!Preview(old.Files.ToDictionary(f => f.Path, f => new byte[0]), "Удалить перечисленные файлы «" + m.Name + "»? Конфиги и открытия сохранятся.", "Удалить файлы")) return null; Remove(root, m); return "Управляемые файлы удалены; настройки сохранены"; }); };
         toggle.Click += delegate { ActionRun("переключение состояния", delegate(string root, Module m) { Manifest old = Load(root, m); if (old == null) throw new Exception("Сначала включите управление найденным модом."); bool disabled = !old.Disabled; Toggle(root, m, disabled); return disabled ? "Отключён; DLL временно исключены из загрузки" : "Включён; DLL восстановлены для загрузки"; }); };
-        import.Click += delegate { ActionRun("импорт ZIP", delegate(string root, Module m) { if (m.Id == "unlock" && MessageBox.Show(this, "Совместимость SkipCharacterUnlock с игрой 1.0.1 и Together не подтверждена. Импорт возможен только из ZIP с опознаваемым SkipCharacterUnlock.dll. Продолжить?", "Совместимость не проверена", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return null; using (var d = new OpenFileDialog { Filter = "ZIP-архив|*.zip", Title = "ZIP для модуля: " + m.Name }) { if (d.ShowDialog(this) != DialogResult.OK) return null; using (Stream s = File.OpenRead(d.FileName)) { var files = ReadZip(s, m); if (!Preview(files, "Импорт в модуль «" + m.Name + "». Проверьте пути перед установкой.")) return null; Install(root, m, files, "import"); return "Установлен / обновлён из ZIP «" + Path.GetFileName(d.FileName) + "»"; } } }); };
+        import.Click += delegate { ActionRun("импорт ZIP", delegate(string root, Module m) { if (m.Id == "unlock" && MessageBox.Show(this, "Совместимость SkipCharacterUnlock с игрой 1.0.2 и Together не подтверждена. Импорт возможен только из ZIP с опознаваемым SkipCharacterUnlock.dll. Продолжить?", "Совместимость не проверена", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return null; using (var d = new OpenFileDialog { Filter = "ZIP-архив|*.zip", Title = "ZIP для модуля: " + m.Name }) { if (d.ShowDialog(this) != DialogResult.OK) return null; using (Stream s = File.OpenRead(d.FileName)) { var files = ReadZip(s, m); if (!Preview(files, "Импорт в модуль «" + m.Name + "». Проверьте пути перед установкой.")) return null; Install(root, m, files, "import"); return "Установлен / обновлён из ZIP «" + Path.GetFileName(d.FileName) + "»"; } } }); };
         adopt.Click += delegate { ActionRun("включение управления", delegate(string root, Module m) { var files = Detect(root, m); if (files.Count == 0) throw new Exception("Файлы ручной установки не найдены."); string message = "«" + m.Name + "» уже установлен вручную.\r\n\r\nМенеджер сохранит резервную копию перечисленных файлов и запомнит их состав. После этого он сможет обновлять и удалять только эти файлы. Мод не переустанавливается, его настройки не меняются.\r\n\r\nПроверьте список и разрешите управление:"; if (!Preview(files.ToDictionary(p => p, p => new byte[0]), message, "Включить управление")) return null; Adopt(root, m); return "Управление включено для " + files.Count + " файлов ручной установки; мод и настройки сохранены"; }); };
         online.Click += delegate { Module m = Selected(); if (m == null) return; try { Process.Start(Source(m)); WriteLog(m.Name + ": открыта страница автора."); } catch (Exception e) { ShowFailure(m.Name + ": открытие страницы", e); } };
         layout.Controls.Add(actions, 0, 4);
@@ -197,7 +200,7 @@ public sealed partial class Manager : Form
         catch (Exception e) { ShowFailure("Обновление лаунчера", e); }
         finally { if (!IsDisposed) { busy = false; UpdateDetails(); } }
     }
-    Module Selected() { return list.SelectedItems.Count == 0 || list.SelectedItems[0].Index >= Catalog.Length ? null : Catalog[list.SelectedItems[0].Index]; }
+    Module Selected() { return list.SelectedItems.Count == 0 ? null : list.SelectedItems[0].Tag as Module; }
     static string ModuleState(Module m,Manifest manifest,int detected,string installedVersion)
     {
         string state=manifest!=null?(manifest.Disabled?"Отключён":"Под управлением"):(detected>0?"Установлен вручную":"Не установлен");
@@ -213,7 +216,7 @@ public sealed partial class Manager : Form
             Directory.CreateDirectory(SettingsDir); File.WriteAllText(Path.Combine(SettingsDir, "game-path.txt"), root);
             int index = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : 0;
             list.BeginUpdate();
-            try { list.Items.Clear(); foreach (Module m in Catalog) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m) }); row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
+            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
             finally { list.EndUpdate(); }
             AppendCommunityRows(root);
             UpdateDetails();
@@ -221,7 +224,7 @@ public sealed partial class Manager : Form
         catch (Exception e)
         {
             list.Items.Clear();
-            foreach (Module m in Catalog) list.Items.Add(new ListViewItem(new[] { m.Name, "Выберите папку игры", "—", Available(m) }));
+            foreach (Module m in Catalog) list.Items.Add(new ListViewItem(new[] { m.Name, "Выберите папку игры", "—", Available(m) }){Tag=m});
             if (list.Items.Count > 0) list.Items[0].Selected = true;
             UpdateDetails(); SetStatus("Папка игры не найдена или недоступна. Нажмите «Выбрать…». Встроенные пакеты уже есть в EXE.", true); WriteLog("Проверка папки: " + e.Message);
         }
@@ -231,9 +234,9 @@ public sealed partial class Manager : Form
         if (ShowCommunitySelection()) return;
         Module m = Selected(); bool usable = m != null && !busy;
         details.Text = m == null ? "Выберите папку игры и модуль в списке. Менеджер различает ручную установку и файлы под своим управлением." : m.Description;
-        install.Enabled = usable && m.Id != "unlock"; import.Enabled = usable;
+        install.Enabled = usable && m.Id != "unlock"; import.Enabled = usable && m.Id != "unlock";
         remove.Enabled = toggle.Enabled = adopt.Enabled = false;
-        online.Enabled = usable && (m.Id == "together" || m.Id == "unlock");
+        online.Enabled = usable && m.Id == "together";
         launch.Enabled = browse.Enabled = scan.Enabled = game.Enabled = !busy;
         context.Text = m == null ? "Сначала выберите папку с CasualtiesUnknown.exe." : "Модуль не установлен: используйте комплект или импорт ZIP.";
         if (!usable) return;
@@ -244,7 +247,7 @@ public sealed partial class Manager : Form
             toggle.Text = mf != null && mf.Disabled ? "Включить" : "Отключить";
             if (mf != null) context.Text = "Под управлением: " + mf.Files.Count + " файлов. Доступны обновление, удаление" + (m.Id == "bepinex" ? "." : " и " + (mf.Disabled ? "включение." : "отключение."));
             else if (count > 0) context.Text = "Установлен вручную. «Управлять модом…» покажет " + count + " файлов, сохранит копию и включит их обновление и удаление.";
-            else if (m.Id == "unlock") context.Text = "Скачайте ZIP со страницы автора. Совместимость с игрой 1.0.1 и Together не проверена.";
+            else if (m.Id == "unlock") context.Text = "Скачайте ZIP со страницы автора. Совместимость с игрой 1.0.2 и Together не проверена.";
             if (m.Id == "russian" || m.Id == "wiki") if (File.Exists(Under(root, "BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll"))) { details.Text += "\r\nНайден прежний RuFieldGuide: сначала удалите его старым установщиком. Открытия сохранятся."; }
         }
         catch (Exception e) { install.Enabled = remove.Enabled = toggle.Enabled = import.Enabled = adopt.Enabled = false; context.Text = e.Message; }
@@ -291,7 +294,7 @@ public sealed partial class Manager : Form
             return f.ShowDialog(this) == DialogResult.OK;
         }
     }
-    static Module Find(string id){Module m=Catalog.FirstOrDefault(x=>x.Id==id);if(m==null)throw new Exception("Модуль недоступен: "+id);return m;}
+    static Module Find(string id){Module m=AllModules.FirstOrDefault(x=>x.Id==id);if(m==null)throw new Exception("Модуль недоступен: "+id);return m;}
     static string DefaultPath()
     {
         string saved = null;
@@ -308,22 +311,206 @@ public sealed partial class Manager : Form
     new static Manifest Load(string root,Module m){string p=ManifestPath(root,m);if(!File.Exists(p))return null;Manifest mf=Json.Deserialize<Manifest>(File.ReadAllText(p));if(mf==null||mf.Module!=m.Id||mf.Files==null)throw new Exception("Повреждён манифест "+m.Id);foreach(Item f in mf.Files)if(!Allowed(m,f.Path)||String.IsNullOrEmpty(f.Hash))throw new Exception("Некорректный манифест "+m.Id);if(mf.Files.Select(f=>f.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=mf.Files.Count)throw new Exception("Повтор путей в манифесте");return mf;}
     static Stream Resource(Module m){if(m.Resource==null)throw new Exception("Используйте ZIP или загрузку Together из GitHub.");Stream s=Assembly.GetExecutingAssembly().GetManifestResourceStream(m.Resource);if(s==null)throw new Exception("В сборке нет ресурса "+m.Resource);return s;}
     static bool Allowed(Module m,string path){string p=path.Replace('\\','/');if(p.Split('/').Any(x=>x==".."||x=="."||x.EndsWith(".")||x.EndsWith(" "))||p.IndexOf(':')>=0)return false;if(m.Id=="russian"||m.Id=="wiki"||m.Id=="unlock")return p.StartsWith(m.Prefix,StringComparison.OrdinalIgnoreCase)||(m.Id=="unlock"&&p.Equals("BepInEx/plugins/SkipCharacterUnlock.dll",StringComparison.OrdinalIgnoreCase));if(m.Id=="together")return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)||p.Equals("BepInEx/patchers/CT_AutoUpdateApplier.dll",StringComparison.OrdinalIgnoreCase);if(m.Id=="bepinex")return p.StartsWith("BepInEx/core/",StringComparison.OrdinalIgnoreCase)||p.Equals("winhttp.dll",StringComparison.OrdinalIgnoreCase)||p.Equals("doorstop_config.ini",StringComparison.OrdinalIgnoreCase)||p.Equals(".doorstop_version",StringComparison.OrdinalIgnoreCase);return false;}
-    static Dictionary<string,byte[]> ReadZip(Stream s,Module m){var result=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);long total=0;using(var zip=new ZipArchive(s,ZipArchiveMode.Read)){if(zip.Entries.Count>10000)throw new Exception("Слишком много файлов в ZIP.");foreach(var e in zip.Entries){string p=e.FullName.Replace('\\','/');if(m.Id=="together"&&p.StartsWith("mod/",StringComparison.OrdinalIgnoreCase))p=p.Substring(4);if(m.Id=="unlock"&&(p.Equals("SkipCharacterUnlock.dll",StringComparison.OrdinalIgnoreCase)||p.Equals("BepInEx/plugins/SkipCharacterUnlock.dll",StringComparison.OrdinalIgnoreCase)))p=m.Prefix+"SkipCharacterUnlock.dll";if(p.EndsWith("/"))continue;if(p.StartsWith("/")||p.IndexOf(':')>=0||p.Split('/').Any(x=>x==".."||x=="."))throw new Exception("Опасный путь в ZIP: "+p);if(!Allowed(m,p)){if((m.Id=="bepinex"||m.Id=="together")&&(p.Equals("CHANGELOG.txt",StringComparison.OrdinalIgnoreCase)||p.Equals("FOR-NERDS.txt",StringComparison.OrdinalIgnoreCase)||p.Equals("INSTALLATION.txt",StringComparison.OrdinalIgnoreCase)||p.Equals("changelog.txt",StringComparison.OrdinalIgnoreCase)||p.Equals("LICENSE",StringComparison.OrdinalIgnoreCase)||p.StartsWith("BepInEx/core/",StringComparison.OrdinalIgnoreCase)||p.Equals("winhttp.dll",StringComparison.OrdinalIgnoreCase)||p.Equals("doorstop_config.ini",StringComparison.OrdinalIgnoreCase)||p.Equals(".doorstop_version",StringComparison.OrdinalIgnoreCase)))continue;throw new Exception("ZIP содержит файл другого модуля: "+p);}if(e.Length>128*1024*1024||(total+=e.Length)>256*1024*1024)throw new Exception("ZIP слишком велик.");if(result.ContainsKey(p))throw new Exception("Повтор пути в ZIP: "+p);using(var input=e.Open())using(var mem=new MemoryStream()){input.CopyTo(mem);result.Add(p,mem.ToArray());}}}if(result.Count==0||!result.Keys.Any(p=>Path.GetFileName(p).Equals(m.Dll,StringComparison.OrdinalIgnoreCase)))throw new Exception("В ZIP не найден основной файл выбранного модуля: "+m.Dll+". Выберите предназначенный для этого модуля ZIP.");return result;}
+    const long MaximumZipFileBytes = 128L * 1024 * 1024;
+    const long MaximumZipTotalBytes = 256L * 1024 * 1024;
+    const int TogetherMetadataBytes = 2 * 1024 * 1024;
+    const int TogetherArchiveBytes = 128 * 1024 * 1024;
+    const int TogetherTimeoutMilliseconds = 20000;
+
+    static Dictionary<string, byte[]> ReadZip(Stream source, Module module)
+    {
+        var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        long declaredTotal = 0, actualTotal = 0;
+        using (var zip = new ZipArchive(source, ZipArchiveMode.Read))
+        {
+            if (zip.Entries.Count > 10000) throw new InvalidDataException("Слишком много файлов в ZIP.");
+            foreach (var entry in zip.Entries)
+            {
+                string path = entry.FullName.Replace('\\', '/');
+                if (module.Id == "together" && path.StartsWith("mod/", StringComparison.OrdinalIgnoreCase)) path = path.Substring(4);
+                if (module.Id == "unlock" && (path.Equals("SkipCharacterUnlock.dll", StringComparison.OrdinalIgnoreCase) || path.Equals("BepInEx/plugins/SkipCharacterUnlock.dll", StringComparison.OrdinalIgnoreCase))) path = module.Prefix + "SkipCharacterUnlock.dll";
+                if (path.EndsWith("/")) continue;
+                if (path.StartsWith("/") || path.IndexOf(':') >= 0 || path.Split('/').Any(p => p == ".." || p == ".")) throw new InvalidDataException("Опасный путь в ZIP: " + path);
+                if (!Allowed(module, path))
+                {
+                    if ((module.Id == "bepinex" || module.Id == "together") && (path.Equals("CHANGELOG.txt", StringComparison.OrdinalIgnoreCase) || path.Equals("FOR-NERDS.txt", StringComparison.OrdinalIgnoreCase) || path.Equals("INSTALLATION.txt", StringComparison.OrdinalIgnoreCase) || path.Equals("LICENSE", StringComparison.OrdinalIgnoreCase) || path.StartsWith("BepInEx/core/", StringComparison.OrdinalIgnoreCase) || path.Equals("winhttp.dll", StringComparison.OrdinalIgnoreCase) || path.Equals("doorstop_config.ini", StringComparison.OrdinalIgnoreCase) || path.Equals(".doorstop_version", StringComparison.OrdinalIgnoreCase))) continue;
+                    throw new InvalidDataException("ZIP содержит файл другого модуля: " + path);
+                }
+                if (entry.Length < 0 || entry.Length > MaximumZipFileBytes || entry.Length > MaximumZipTotalBytes - declaredTotal) throw new InvalidDataException("ZIP слишком велик.");
+                declaredTotal += entry.Length;
+                if (result.ContainsKey(path)) throw new InvalidDataException("Повтор пути в ZIP: " + path);
+                using (Stream input = entry.Open()) result.Add(path, ReadZipEntry(input, entry.Length, ref actualTotal));
+            }
+        }
+        if (result.Count == 0 || !result.Keys.Any(p => Path.GetFileName(p).Equals(module.Dll, StringComparison.OrdinalIgnoreCase))) throw new InvalidDataException("В ZIP не найден основной файл выбранного модуля: " + module.Dll + ". Выберите предназначенный для этого модуля ZIP.");
+        return result;
+    }
+    static byte[] ReadZipEntry(Stream input, long declaredLength, ref long actualTotal)
+    {
+        if (declaredLength < 0 || declaredLength > MaximumZipFileBytes) throw new InvalidDataException("Файл ZIP слишком велик.");
+        using (var memory = new MemoryStream())
+        {
+            byte[] buffer = new byte[32768]; long actualLength = 0; int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) != 0)
+            {
+                // Count bytes before allocating/writing them; central-directory lengths are untrusted.
+                if (read > declaredLength - actualLength || read > MaximumZipFileBytes - actualLength || read > MaximumZipTotalBytes - actualTotal) throw new InvalidDataException("Распакованные данные превышают заявленную длину или допустимый размер ZIP.");
+                actualLength += read; actualTotal += read; memory.Write(buffer, 0, read);
+            }
+            if (actualLength != declaredLength) throw new InvalidDataException("ZIP повреждён: фактическая длина файла не совпадает с заявленной.");
+            return memory.ToArray();
+        }
+    }
     static string Actual(Manifest mf,Item f){return f.Path+(mf.Disabled&&f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)?".cumm-disabled":"");}
     static void CheckOwned(string root,Manifest mf){if(mf==null)return;foreach(Item f in mf.Files){string p=Under(root,Actual(mf,f));if(!File.Exists(p)||Hash(p)!=f.Hash)throw new Exception("Управляемый файл отсутствует или изменён: "+Actual(mf,f)+". Восстановите файл из копии либо сохраните изменения отдельно.");}}
     static List<string> Detect(string root,Module m){var files=new List<string>();if(m.Id=="unlock"&&File.Exists(Under(root,"BepInEx/plugins/SkipCharacterUnlock.dll")))files.Add("BepInEx/plugins/SkipCharacterUnlock.dll");string prefix=m.Prefix;string dir=Under(root,prefix.TrimEnd('/'));if(Directory.Exists(dir))foreach(string f in EnumerateSafe(root,dir)){string rel=f.Substring(root.Length+1).Replace('\\','/');if(Allowed(m,rel)&&(m.Id!="together"||KnownTogether(rel)))files.Add(rel);}if(m.Id=="bepinex")foreach(string p in new[]{"winhttp.dll","doorstop_config.ini",".doorstop_version"})if(File.Exists(Under(root,p)))files.Add(p);if(m.Id=="together"){string patch=Under(root,"BepInEx/patchers");if(Directory.Exists(patch))foreach(string f in EnumerateSafe(root,patch)){string rel=f.Substring(root.Length+1).Replace('\\','/');if(Path.GetFileName(f).Equals("CT_AutoUpdateApplier.dll",StringComparison.OrdinalIgnoreCase))files.Add(rel);}}return files;}
     static bool KnownTogether(string p){string[] names={"CasualtiesMP.dll","opus.dll","OpusSharp.Core.dll","RefMagic.dll","LiteNetLib.dll","LiteEntitySystem.dll","System.Runtime.CompilerServices.Unsafe.dll","K4os.Compression.LZ4.dll","Multiupdater.dll"};return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)&&names.Contains(Path.GetFileName(p),StringComparer.OrdinalIgnoreCase);}
     static IEnumerable<string> EnumerateSafe(string root,string dir){Under(root,dir.Substring(root.Length+1));foreach(string f in Directory.GetFiles(dir)){Under(root,f.Substring(root.Length+1));yield return f;}foreach(string child in Directory.GetDirectories(dir)){Under(root,child.Substring(root.Length+1)+"/test");foreach(string f in EnumerateSafe(root,child))yield return f;}}
     static string VersionOf(string root,Module m,Manifest mf){IEnumerable<string> paths=mf!=null?mf.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(f=>Under(root,Actual(mf,f))):Detect(root,m).Where(p=>p.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(p=>Under(root,p));foreach(string p in paths.OrderBy(p=>Path.GetFileName(p).Equals(m.Dll,StringComparison.OrdinalIgnoreCase)?0:1)){try{return AssemblyName.GetAssemblyName(p).Version.ToString();}catch{}}return "—";}
-    static string Available(Module m){return m.Resource != null ? BundledVersion(m.Id) + " (в EXE)" : m.Id=="together"?(KnownTogetherVersion??"Проверить fullgame-релиз"):"1.0.1, совместимость не подтверждена";}
+    static string Available(Module m){return m.Resource != null ? BundledVersion(m.Id) + " (в EXE)" : m.Id=="together"?(KnownTogetherVersion??"Проверить fullgame-релиз"):"1.0.2, совместимость не подтверждена";}
     static string Source(Module m){return m.Id=="together"?"https://github.com/creaturefeaturelarry/casualties-together/releases":m.Id=="unlock"?"https://www.nexusmods.com/scavprototype/mods/884":"bundled";}
-    static string ScanText(string root){return Json.Serialize(Catalog.Select(m=>new{module=m.Id,available=Available(m),source=Source(m),compatibility=m.Id=="unlock"?"unverified":m.Id=="together"?"read release notes":"game 1.0.1",managed=Load(root,m)!=null,disabled=Load(root,m)!=null&&Load(root,m).Disabled,version=VersionOf(root,m,Load(root,m)),detected=Detect(root,m)}).ToArray());}
-    // Each operation journals every touched byte, including the manifest. Exceptions restore the exact prior state.
-    static void Transaction(string root,Dictionary<string,byte[]> writes,List<string> deletes,string label){string backupRel=State+"backups/"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff")+"-"+label+"/";string journal=Under(root,backupRel+"transaction.json");Directory.CreateDirectory(Path.GetDirectoryName(journal));var before=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);var paths=writes.Keys.Concat(deletes).Distinct(StringComparer.OrdinalIgnoreCase).ToList();foreach(string rel in paths){string full=Under(root,rel);before[rel]=File.Exists(full)?File.ReadAllBytes(full):null;if(before[rel]!=null){string copy=Under(root,backupRel+"files/"+rel);Directory.CreateDirectory(Path.GetDirectoryName(copy));File.WriteAllBytes(copy,before[rel]);}}File.WriteAllText(journal,Json.Serialize(new{status="prepared",paths=paths,absent=before.Where(kv=>kv.Value==null).Select(kv=>kv.Key).ToArray()}));try{foreach(var kv in writes){string p=Under(root,kv.Key);Directory.CreateDirectory(Path.GetDirectoryName(p));File.WriteAllBytes(p,kv.Value);}foreach(string rel in deletes)if(!writes.ContainsKey(rel)){string p=Under(root,rel);if(File.Exists(p))File.Delete(p);}File.WriteAllText(journal,Json.Serialize(new{status="committed",paths=paths}));}catch{foreach(var kv in before){string p=Under(root,kv.Key);if(kv.Value==null){if(File.Exists(p))File.Delete(p);}else{Directory.CreateDirectory(Path.GetDirectoryName(p));File.WriteAllBytes(p,kv.Value);}}File.WriteAllText(journal,Json.Serialize(new{status="rolled_back",paths=paths}));throw;}LastBackup=backupRel;Log(label+"; backup: "+backupRel);}
-    static void RequireGameVersion(string root){string path=Under(root,"CasualtiesUnknown_Data/Lang/EN.json");if(!File.Exists(path))throw new Exception("Не удалось определить версию игры: отсутствует CasualtiesUnknown_Data/Lang/EN.json. Перевод и справочник рассчитаны на игру 1.0.1.");Dictionary<string,object> lang;try{lang=Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(path));}catch{throw new Exception("Не удалось прочитать версию игры из Lang/EN.json. Файлы модулей не изменены.");}object version;if(lang==null||!lang.TryGetValue("version",out version)||Convert.ToString(version)!="1.0.1")throw new Exception("Эта сборка перевода и справочника поддерживает только Casualties: Unknown 1.0.1. Найдена другая или неизвестная версия; файлы модулей не изменены.");}
-    static void Install(string root,Module m,Dictionary<string,byte[]> files,string version){if(m.Id=="russian"||m.Id=="wiki")RequireGameVersion(root);Manifest old=Load(root,m);CheckOwned(root,old);if((m.Id=="russian"||m.Id=="wiki")&&File.Exists(Under(root,"BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll")))throw new Exception("Обнаружен прежний объединённый RuFieldGuide. Удалите его предыдущим установщиком перед установкой отдельных модулей. Журнал открытий будет сохранён.");if(old!=null&&old.Disabled)throw new Exception("Сначала включите модуль перед обновлением.");if(m.Id!="bepinex"&&!File.Exists(Under(root,"BepInEx/core/BepInEx.dll")))throw new Exception("Сначала установите BepInEx отдельным модулем.");if(old==null&&Detect(root,m).Count>0)throw new Exception("Обнаружена ручная установка. Проверьте список и нажмите «Управлять модом…» перед обновлением.");var oldFiles=old==null?new List<Item>():old.Files;foreach(string rel in files.Keys){Under(root,rel);if(File.Exists(Under(root,rel))&&!oldFiles.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл не принадлежит модулю: "+rel+". Он сохранён без изменений.");foreach(Module other in Catalog.Where(x=>x.Id!=m.Id)){Manifest om=Load(root,other);if(om!=null&&om.Files.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл принадлежит модулю "+other.Name+": "+rel);}}var next=new Manifest{Module=m.Id,Version=version,Files=files.Select(kv=>new Item{Path=kv.Key,Hash=Hash(kv.Value)}).ToList()};var writes=new Dictionary<string,byte[]>(files,StringComparer.OrdinalIgnoreCase);writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(next)));Transaction(root,writes,oldFiles.Where(f=>!files.ContainsKey(f.Path)).Select(f=>f.Path).ToList(),"install-"+m.Id);}
+    static string ScanText(string root){return Json.Serialize(VisibleModules(root).Select(m=>new{module=m.Id,available=Available(m),source=Source(m),compatibility=m.Id=="unlock"?"unverified":m.Id=="together"?"read release notes":"game 1.0.2",managed=Load(root,m)!=null,disabled=Load(root,m)!=null&&Load(root,m).Disabled,version=VersionOf(root,m,Load(root,m)),detected=Detect(root,m)}).ToArray());}
+    // Each operation journals every touched byte, including the manifest.
+    // A failed restore must not prevent restoration of the remaining files.
+    static void Transaction(string root, Dictionary<string, byte[]> writes, List<string> deletes, string label)
+    {
+        string backupRel = State + "backups/" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff") + "-" + label + "/";
+        string journal = Under(root, backupRel + "transaction.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(journal));
+        var before = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var paths = writes.Keys.Concat(deletes).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (string relative in paths)
+        {
+            string full = Under(root, relative); before[relative] = File.Exists(full) ? File.ReadAllBytes(full) : null;
+            if (before[relative] != null) { string copy = Under(root, backupRel + "files/" + relative); Directory.CreateDirectory(Path.GetDirectoryName(copy)); File.WriteAllBytes(copy, before[relative]); }
+        }
+        File.WriteAllText(journal, Json.Serialize(new { status = "prepared", paths = paths, absent = before.Where(p => p.Value == null).Select(p => p.Key).ToArray() }));
+        try
+        {
+            foreach (var entry in writes) { string full = Under(root, entry.Key); Directory.CreateDirectory(Path.GetDirectoryName(full)); File.WriteAllBytes(full, entry.Value); }
+            foreach (string relative in deletes) if (!writes.ContainsKey(relative)) { string full = Under(root, relative); if (File.Exists(full)) File.Delete(full); }
+            File.WriteAllText(journal, Json.Serialize(new { status = "committed", paths = paths }));
+        }
+        catch (Exception original)
+        {
+            List<Exception> failures = RestoreBefore(root, before);
+            try { File.WriteAllText(journal, Json.Serialize(new { status = failures.Count == 0 ? "rolled_back" : "rollback_incomplete", paths = paths, errors = failures.Select(e => e.Message).ToArray() })); }
+            catch (Exception journalError) { failures.Add(new IOException("Не удалось записать результат отката: " + journal, journalError)); }
+            if (failures.Count > 0)
+            {
+                failures.Insert(0, original);
+                throw new IOException("Операция не выполнена: " + original.Message + ". Откат или запись его результата не завершены. Резервная копия: " + Path.GetDirectoryName(journal), new AggregateException(failures));
+            }
+            throw;
+        }
+        LastBackup = backupRel; Log(label + "; backup: " + backupRel);
+    }
+    static List<Exception> RestoreBefore(string root, Dictionary<string, byte[]> before)
+    {
+        var failures = new List<Exception>();
+        foreach (var entry in before)
+        {
+            try
+            {
+                string full = Under(root, entry.Key);
+                if (entry.Value == null) { if (File.Exists(full)) File.Delete(full); }
+                else { Directory.CreateDirectory(Path.GetDirectoryName(full)); File.WriteAllBytes(full, entry.Value); }
+            }
+            catch (Exception error) { failures.Add(new IOException("Не удалось восстановить «" + entry.Key + "».", error)); }
+        }
+        return failures;
+    }
+    static void RequireGameVersion(string root){string path=Under(root,"CasualtiesUnknown_Data/Lang/EN.json");if(!File.Exists(path))throw new Exception("Не удалось определить версию игры: отсутствует CasualtiesUnknown_Data/Lang/EN.json. Перевод и справочник рассчитаны на игру 1.0.2.");Dictionary<string,object> lang;try{lang=Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(path));}catch{throw new Exception("Не удалось прочитать версию игры из Lang/EN.json. Файлы модулей не изменены.");}object version;if(lang==null||!lang.TryGetValue("version",out version)||Convert.ToString(version)!="1.0.2")throw new Exception("Эта сборка перевода и справочника поддерживает только Casualties: Unknown 1.0.2. Найдена другая или неизвестная версия; файлы модулей не изменены.");}
+    static void Install(string root,Module m,Dictionary<string,byte[]> files,string version){if(m.Id=="unlock")throw new InvalidOperationException("Character Unlock удалён из встроенных модулей; установка через эту карточку недоступна.");if(m.Id=="russian"||m.Id=="wiki")RequireGameVersion(root);Manifest old=Load(root,m);CheckOwned(root,old);if((m.Id=="russian"||m.Id=="wiki")&&File.Exists(Under(root,"BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll")))throw new Exception("Обнаружен прежний объединённый RuFieldGuide. Удалите его предыдущим установщиком перед установкой отдельных модулей. Журнал открытий будет сохранён.");if(old!=null&&old.Disabled)throw new Exception("Сначала включите модуль перед обновлением.");if(m.Id!="bepinex"&&!File.Exists(Under(root,"BepInEx/core/BepInEx.dll")))throw new Exception("Сначала установите BepInEx отдельным модулем.");if(old==null&&Detect(root,m).Count>0)throw new Exception("Обнаружена ручная установка. Проверьте список и нажмите «Управлять модом…» перед обновлением.");var oldFiles=old==null?new List<Item>():old.Files;foreach(string rel in files.Keys){Under(root,rel);if(File.Exists(Under(root,rel))&&!oldFiles.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл не принадлежит модулю: "+rel+". Он сохранён без изменений.");foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){Manifest om=Load(root,other);if(om!=null&&om.Files.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл принадлежит модулю "+other.Name+": "+rel);}}var next=new Manifest{Module=m.Id,Version=version,Files=files.Select(kv=>new Item{Path=kv.Key,Hash=Hash(kv.Value)}).ToList()};var writes=new Dictionary<string,byte[]>(files,StringComparer.OrdinalIgnoreCase);writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(next)));Transaction(root,writes,oldFiles.Where(f=>!files.ContainsKey(f.Path)).Select(f=>f.Path).ToList(),"install-"+m.Id);}
     static void Remove(string root,Module m){Manifest old=Load(root,m);if(old==null)throw new Exception("Ручная установка не удаляется автоматически.");CheckOwned(root,old);if(m.Id=="bepinex"){string dir=Under(root,"BepInEx/plugins");string patchers=Under(root,"BepInEx/patchers");if((Directory.Exists(dir)&&EnumerateSafe(root,dir).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)))||(Directory.Exists(patchers)&&EnumerateSafe(root,patchers).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase))))throw new Exception("Сначала удалите моды: загрузчик используется plugins или patchers.");}var deletes=old.Files.Select(f=>Actual(old,f)).ToList();deletes.Add(State+m.Id+".json");Transaction(root,new Dictionary<string,byte[]>(),deletes,"remove-"+m.Id);}
     static void Toggle(string root,Module m,bool disabled){if(m.Id=="bepinex")throw new Exception("Общий загрузчик нельзя отключать этим способом.");Manifest old=Load(root,m);if(old==null)throw new Exception("Модуль не управляется менеджером.");CheckOwned(root,old);if(old.Disabled==disabled)return;var writes=new Dictionary<string,byte[]>();var deletes=new List<string>();foreach(Item f in old.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))){string source=Actual(old,f),dest=f.Path+(disabled?".cumm-disabled":"");if(File.Exists(Under(root,dest)))throw new Exception("Путь уже занят: "+dest);writes.Add(dest,File.ReadAllBytes(Under(root,source)));deletes.Add(source);}old.Disabled=disabled;writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(old)));Transaction(root,writes,deletes,(disabled?"disable-":"enable-")+m.Id);}
-    static void Adopt(string root,Module m){if(Load(root,m)!=null)throw new Exception("Модуль уже управляется менеджером.");var files=Detect(root,m);if(files.Count==0)throw new Exception("Файлы не найдены.");var mf=new Manifest{Module=m.Id,Version="adopted",Files=files.Select(p=>new Item{Path=p,Hash=Hash(Under(root,p))}).ToList()};foreach(Module other in Catalog.Where(x=>x.Id!=m.Id)){var om=Load(root,other);if(om!=null&&om.Files.Any(f=>files.Contains(f.Path,StringComparer.OrdinalIgnoreCase)))throw new Exception("Некоторые файлы уже принадлежат другому модулю.");}var writes=files.ToDictionary(p=>p,p=>File.ReadAllBytes(Under(root,p)));writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(mf)));Transaction(root,writes,new List<string>(),"adopt-"+m.Id);}
-    string OnlineInstall(string root,Module m){ServicePointManager.SecurityProtocol=(SecurityProtocolType)3072;using(var client=new WebClient()){client.Headers["User-Agent"]="CasualtiesModManager/0.5.0";string json=client.DownloadString("https://api.github.com/repos/creaturefeaturelarry/casualties-together/releases/latest");var release=Json.Deserialize<Dictionary<string,object>>(json);var assets=(System.Collections.ArrayList)release["assets"];var candidates=assets.Cast<Dictionary<string,object>>().Where(a=>((string)a["name"]).EndsWith(".zip",StringComparison.OrdinalIgnoreCase)&&((string)a["name"]).IndexOf("fullgame",StringComparison.OrdinalIgnoreCase)>=0).ToList();if(candidates.Count!=1)throw new Exception("Не удалось однозначно выбрать fullgame ZIP. Откройте релизы и импортируйте нужный ZIP вручную.");var asset=candidates[0];string url=(string)asset["browser_download_url"];if(!url.StartsWith("https://github.com/creaturefeaturelarry/casualties-together/releases/download/",StringComparison.Ordinal))throw new Exception("Неожиданный адрес загрузки.");if(MessageBox.Show(this,"Релиз: "+release["tag_name"]+"\r\nАрхив: "+asset["name"]+"\r\n\r\n"+release["body"]+"\r\n\r\nЗагрузить для предварительного просмотра?","Together: совместимость",MessageBoxButtons.OKCancel)!=DialogResult.OK)return null;byte[] data=client.DownloadData(url);if(asset.ContainsKey("digest")&&asset["digest"]!=null&&((string)asset["digest"]).StartsWith("sha256:")&&Hash(data)!=((string)asset["digest"]).Substring(7))throw new Exception("SHA-256 архива не совпадает с GitHub.");using(var mem=new MemoryStream(data)){var files=ReadZip(mem,m);if(!Preview(files,"Together: установить файлы из "+asset["name"]+"? Встроенный в архив загрузчик пропускается."))return null;Install(root,m,files,(string)release["tag_name"]);return "Установлен / обновлён из GitHub, релиз "+release["tag_name"];}}}
+    static void Adopt(string root,Module m){if(Load(root,m)!=null)throw new Exception("Модуль уже управляется менеджером.");var files=Detect(root,m);if(files.Count==0)throw new Exception("Файлы не найдены.");var mf=new Manifest{Module=m.Id,Version="adopted",Files=files.Select(p=>new Item{Path=p,Hash=Hash(Under(root,p))}).ToList()};foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){var om=Load(root,other);if(om!=null&&om.Files.Any(f=>files.Contains(f.Path,StringComparer.OrdinalIgnoreCase)))throw new Exception("Некоторые файлы уже принадлежат другому модулю.");}var writes=files.ToDictionary(p=>p,p=>File.ReadAllBytes(Under(root,p)));writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(mf)));Transaction(root,writes,new List<string>(),"adopt-"+m.Id);}
+    static Uri ValidateTogetherUrl(string text, bool metadata, bool initial)
+    {
+        Uri url;
+        if (!Uri.TryCreate(text, UriKind.Absolute, out url) || url.Scheme != "https" || !url.IsDefaultPort || url.UserInfo.Length != 0 || url.Fragment.Length != 0) throw new InvalidDataException("Неожиданный HTTPS-адрес Together.");
+        if (metadata)
+        {
+            if (url.Host != "api.github.com" || url.AbsolutePath != "/repos/creaturefeaturelarry/casualties-together/releases/latest" || url.Query.Length != 0) throw new InvalidDataException("Неожиданный адрес метаданных Together.");
+        }
+        else if (url.Host == "github.com")
+        {
+            string[] parts = Uri.UnescapeDataString(url.AbsolutePath).Split('/');
+            if (url.Query.Length != 0 || parts.Length != 7 || parts[1] != "creaturefeaturelarry" || parts[2] != "casualties-together" || parts[3] != "releases" || parts[4] != "download" || String.IsNullOrWhiteSpace(parts[5]) || parts[5] == "." || parts[5] == ".." || !parts[6].EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Архив Together должен находиться в официальном GitHub Releases.");
+        }
+        else if (initial || (url.Host != "release-assets.githubusercontent.com" && url.Host != "objects.githubusercontent.com")) throw new InvalidDataException("Неожиданный сервер загрузки Together.");
+        string path = Uri.UnescapeDataString(url.AbsolutePath);
+        if (path.IndexOf('\\') >= 0 || path.Split('/').Any(p => p == "." || p == "..")) throw new InvalidDataException("Некорректный путь загрузки Together.");
+        return url;
+    }
+    static byte[] DownloadTogether(string text, int maximumBytes, bool metadata)
+    {
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+        Uri current = ValidateTogetherUrl(text, metadata, true);
+        var timer = Stopwatch.StartNew();
+        for (int redirects = 0; redirects <= 5; redirects++)
+        {
+            ValidateTogetherUrl(current.AbsoluteUri, metadata, redirects == 0);
+            int remaining = TogetherTimeoutMilliseconds - (int)timer.ElapsedMilliseconds;
+            if (remaining <= 0) throw new WebException("Загрузка Together превысила 20 секунд.", WebExceptionStatus.Timeout);
+            var request = (HttpWebRequest)WebRequest.Create(current);
+            request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.KeepAlive = false;
+            request.UserAgent = "CasualtiesModManager/" + LauncherVersion;
+            using (var response = (HttpWebResponse)request.GetResponse())
+            {
+                int code = (int)response.StatusCode;
+                if (code >= 300 && code <= 399)
+                {
+                    string location = response.Headers["Location"];
+                    if (String.IsNullOrEmpty(location) || redirects == 5) throw new InvalidDataException("Некорректное перенаправление Together.");
+                    current = new Uri(current, location); continue;
+                }
+                if (response.StatusCode != HttpStatusCode.OK) throw new IOException("Сервер Together вернул HTTP " + code);
+                using (Stream input = response.GetResponseStream()) return ReadTogetherBody(input, response.ContentLength, maximumBytes, timer, TogetherTimeoutMilliseconds);
+            }
+        }
+        throw new IOException("Не удалось загрузить Together.");
+    }
+    static byte[] ReadTogetherBody(Stream input, long declaredLength, int maximumBytes, Stopwatch timer, int timeoutMilliseconds)
+    {
+        if (declaredLength > maximumBytes) throw new InvalidDataException("Загрузка Together превышает допустимый размер.");
+        using (var memory = new MemoryStream())
+        {
+            byte[] buffer = new byte[32768]; int total = 0;
+            while (true)
+            {
+                long remaining = timeoutMilliseconds - timer.ElapsedMilliseconds;
+                if (remaining <= 0) throw new WebException("Загрузка Together превысила допустимое время.", WebExceptionStatus.Timeout);
+                if (input.CanTimeout) input.ReadTimeout = (int)Math.Min(remaining, Int32.MaxValue);
+                int read = input.Read(buffer, 0, buffer.Length);
+                if (timer.ElapsedMilliseconds >= timeoutMilliseconds) throw new WebException("Загрузка Together превысила допустимое время.", WebExceptionStatus.Timeout);
+                if (read == 0) break;
+                if (read > maximumBytes - total) throw new InvalidDataException("Загрузка Together превышает допустимый размер.");
+                total += read; memory.Write(buffer, 0, read);
+            }
+            if (total == 0 || (declaredLength >= 0 && total != declaredLength)) throw new InvalidDataException("Сервер Together вернул пустой или неполный файл.");
+            return memory.ToArray();
+        }
+    }
+    string OnlineInstall(string root, Module module)
+    {
+        string source = new UTF8Encoding(false, true).GetString(DownloadTogether("https://api.github.com/repos/creaturefeaturelarry/casualties-together/releases/latest", TogetherMetadataBytes, true));
+        var release = Json.Deserialize<Dictionary<string, object>>(source);
+        var assets = (System.Collections.ArrayList)release["assets"];
+        var candidates = assets.Cast<Dictionary<string, object>>().Where(a => ((string)a["name"]).EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && ((string)a["name"]).IndexOf("fullgame", StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+        if (candidates.Count != 1) throw new InvalidDataException("Не удалось однозначно выбрать fullgame ZIP. Откройте релизы и импортируйте нужный ZIP вручную.");
+        var asset = candidates[0]; string url = (string)asset["browser_download_url"];
+        ValidateTogetherUrl(url, false, true);
+        if (MessageBox.Show(this, "Релиз: " + release["tag_name"] + "\r\nАрхив: " + asset["name"] + "\r\n\r\n" + release["body"] + "\r\n\r\nЗагрузить для предварительного просмотра?", "Together: совместимость", MessageBoxButtons.OKCancel) != DialogResult.OK) return null;
+        byte[] data = DownloadTogether(url, TogetherArchiveBytes, false);
+        if (asset.ContainsKey("digest") && asset["digest"] != null && ((string)asset["digest"]).StartsWith("sha256:") && Hash(data) != ((string)asset["digest"]).Substring(7)) throw new InvalidDataException("SHA-256 архива не совпадает с GitHub.");
+        using (var memory = new MemoryStream(data))
+        {
+            var files = ReadZip(memory, module);
+            if (!Preview(files, "Together: установить файлы из " + asset["name"] + "? Встроенный в архив загрузчик пропускается.")) return null;
+            Install(root, module, files, (string)release["tag_name"]);
+            return "Установлен / обновлён из GitHub, релиз " + release["tag_name"];
+        }
+    }
+
 }

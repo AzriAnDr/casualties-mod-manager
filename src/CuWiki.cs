@@ -9,7 +9,7 @@ using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-[BepInPlugin("local.casualties.wiki", "Полевой справочник", "0.2.0")]
+[BepInPlugin("local.casualties.wiki", "Полевой справочник · WIP", "0.2.1")]
 public sealed class CuWiki : BaseUnityPlugin
 {
     internal static CuWiki Instance;
@@ -39,7 +39,7 @@ public sealed class CuWiki : BaseUnityPlugin
         catch (Exception e) { Logger.LogWarning("Журнал не прочитан; исходный файл сохранён: " + e.Message); notice = "Не удалось прочитать журнал. Он не будет перезаписан."; }
         harmony = new Harmony("local.casualties.wiki");
         harmony.Patch(AccessTools.Method(typeof(PlayerCamera), "ItemHoverDescription"), postfix: new HarmonyMethod(typeof(CuWiki), "ObserveItem"));
-        Logger.LogInfo("CuWiki 0.2.0 loaded; game=" + Application.version + "; F8 opens journal from pause menu. No network or gameplay patches.");
+        Logger.LogInfo("CuWiki 0.2.1 WIP loaded; game=" + Application.version + "; F8 opens journal from pause menu. No network or gameplay patches.");
     }
 
     // Only a local, identified tooltip is a discovery. Never enumerate world objects.
@@ -127,7 +127,7 @@ public sealed class CuWiki : BaseUnityPlugin
         GUILayout.BeginArea(new Rect(left + 26, 44, width - 52, height - 40));
         GUILayout.BeginHorizontal();
         GUILayout.BeginVertical();
-        GUILayout.Label("ПОЛЕВОЙ СПРАВОЧНИК", smallStyle);
+        GUILayout.Label("ПОЛЕВОЙ СПРАВОЧНИК · WIP", smallStyle);
         GUILayout.Label("То, что ты уже знаешь", headingStyle);
         GUILayout.EndVertical();
         GUILayout.FlexibleSpace();
@@ -166,7 +166,7 @@ public sealed class CuWiki : BaseUnityPlugin
             GUILayout.Space(24);
             GUILayout.Label(articles.Count == 0 ? "У каждого открытия есть история" : "Выбери запись слева", headingStyle);
             GUILayout.Space(20);
-            GUILayout.Label("Осмотри распознанный предмет — его описание останется здесь. Изготовь что-нибудь — и справочник запомнит рецепт.\n\nНезнакомые названия и скрытые рецепты не показываются. Твои открытия сохраняются между забегами.", bodyStyle);
+            GUILayout.Label("WIP — справочник в разработке.\n\nОсмотри распознанный предмет — его описание останется здесь. Изготовь что-нибудь — и справочник запомнит рецепт.\n\nНезнакомые названия и скрытые рецепты не показываются. Твои открытия сохраняются между забегами.", bodyStyle);
             GUILayout.Space(24);
             GUILayout.Label("F8 в главном меню или меню паузы", smallStyle);
         }

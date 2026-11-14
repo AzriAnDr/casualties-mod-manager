@@ -1,0 +1,16 @@
+Casualties Mod Manager0.5.1 — stable0.5 baseline update
+2026-11-14
+
+Changes: Russian0.2.4/game1.0.2; community RU update and local contextual corrections; real Nexus tags with ANY multi-filter; Character Unlock removed from offered built-ins with legacy cleanup retained; wiki0.2.1 marked WIP. Previous download/updater hardening retained. Experimental Nexus account/API code not compiled or bundled.
+
+Validation:
+- Plugins and full manager compile:0errors/0warnings against game1.0.2.
+- Locale audit:5944/5944 leaf coverage;0missing/extra/type/placeholder/richtext differences;208technical resource IDs preserved; ENdelta4new/1changed/0removed;909changed/newRU fields vs prior package.
+-20tag checks: normalized real source labels, missing/empty/invalid arrays, exact ANY matching, compound filters; actual613record snapshot with79distinct tags.
+-15manager integration checks: accepted1.0.2 and rejected1.0.1/1.0.3; built-in catalogue/WIP; legacy unlock cleanup visibility/installation block/ownership; ordinary catalog plugin path for former unlock; embedded versions; absence of Nexus API types.
+- Embedded RussianZIP equals auditedlocale; audit/credits included.
+- Defender1.463.291.0 custom scan completed;0new threat detections; protection enabled. Scan90F1874C-4FA3-4DCA-AEC4-349724FDE6FF.
+- Game and manager UI not launched; actual game installation not modified; multiplayer and visual QA not performed.
+- New binary is not the0.5.0sample reviewed by Microsoft. Validation completed before public release.
+
+SHA256: f5d2cc2b007f6f5679aee908aa28a914070209973c7a199aecf8283e92036dd7

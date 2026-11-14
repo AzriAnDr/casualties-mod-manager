@@ -4,9 +4,12 @@ Casualties: Unknown — Orsoniks / Oro Interactive.
 UCRD (Axawer), Vinterhelm, SoberFurry, Captain_Kirk, Batya_v_khati,
 Voprositelnii, Strag Az, Untitled9223, Bogtogus, Spectator39.
 Источник: https://github.com/Orsoniks/scavgame-locale
-Файл: release/ru-RU.json, исходная версия 1.0, обновление 10.11.2026.
+Файл: release/ru-RU.json, исходная версия 1.0.2, обновление 14.11.2026.
+Коммит: f88251a18f561130c0932b3b1f299c7a22ef4d61.
 Полное исходное авторство сохранено в description языкового файла.
-Локальная адаптация справочника: 6 исправлений, указанных в assets/ru-corrections.json.
+Локальная адаптация русификатора для игры 1.0.2: проверка новых строк,
+плейсхолдеров и сохранение необходимых исправлений. История прежних
+исправлений: assets/ru-corrections.json; текущая проверка: LOCALE-UPDATE-0.2.4.txt.
 Исходная лицензия перевода приложена как TRANSLATION-LICENSE.txt.
 
 BepInEx 5.4.23.5 — BepInEx contributors, MIT.

@@ -21,7 +21,7 @@ public static class ModCatalog
         public int NexusModId;
         public string NexusGameDomain, DownloadUrl, ArchiveSha256, LastUpdated, BepinexVersion, DllVersion;
         public Dictionary<string,string> Links = Map(), BepinexPlugins = Map(), DllSha256s = Map(), DllVersions = Map();
-        public List<string> DllNames = new List<string>(), Dependencies = new List<string>();
+        public List<string> DllNames = new List<string>(), Dependencies = new List<string>(), Tags = new List<string>();
     }
     public sealed class InstalledInfo
     {
@@ -120,6 +120,8 @@ public static class ModCatalog
         foreach(string key in e.BepinexPlugins.Keys.ToArray())if(!Regex.IsMatch(key,@"^[A-Za-z0-9._-]{1,256}$"))e.BepinexPlugins.Remove(key);
         e.DllNames=Strings(d,"dllNames",512).Where(IsDllName).Concat(e.DllSha256s.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         e.Dependencies=Strings(d,"Dependencies",256).Where(s=>Regex.IsMatch(s,@"^nexus-[1-9][0-9]{0,9}$")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // The metadata feed's nexusTags contains actual Nexus labels, not inferred categories.
+        e.Tags=Strings(d,"nexusTags",256).Select(NormalizeTag).Where(s=>s.Length>0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         string archive=Text(d,"SHA256",128);if(IsHash(archive))e.ArchiveSha256=archive.ToLowerInvariant();
         string download=Text(d,"DownloadUrl",4096);Uri nxm;
         if(Uri.TryCreate(download,UriKind.Absolute,out nxm)&&nxm.Scheme=="nexus"&&nxm.Host=="scavprototype"&&nxm.Query.Length==0&&nxm.Fragment.Length==0&&Regex.IsMatch(nxm.AbsolutePath,"^/"+nexus.ToString(CultureInfo.InvariantCulture)+@"/[1-9][0-9]*$"))e.DownloadUrl=download;
@@ -147,6 +149,23 @@ public static class ModCatalog
         foreach(Entry e in entries)foreach(string hash in e.DllSha256s.Values){HashSet<string>owners;if(!index.TryGetValue(hash,out owners))index[hash]=owners=new HashSet<string>(StringComparer.OrdinalIgnoreCase);owners.Add(e.Id);}HashOwners=index;
     }
     public static string NexusUrl(Entry e){return e!=null&&e.NexusModId>0&&e.NexusGameDomain=="scavprototype"?"https://www.nexusmods.com/scavprototype/mods/"+e.NexusModId.ToString(CultureInfo.InvariantCulture):null;}
+    static string NormalizeTag(string tag)
+    {
+        if(String.IsNullOrWhiteSpace(tag))return "";
+        tag=WebUtility.HtmlDecode(tag).Normalize(NormalizationForm.FormC);
+        if(tag.Any(c=>Char.IsControl(c)&&!Char.IsWhiteSpace(c))||tag.Any(c=>(c>='\u202a'&&c<='\u202e')||(c>='\u2066'&&c<='\u2069')))return "";
+        tag=Regex.Replace(tag,@"\s+"," ").Trim();return tag.Length<=128?tag:"";
+    }
+    public static List<string> AvailableTags(IEnumerable<Entry> entries)
+    {
+        return (entries??Enumerable.Empty<Entry>()).Where(e=>e!=null).SelectMany(e=>e.Tags??new List<string>()).Select(NormalizeTag).Where(t=>t.Length>0).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t=>t,StringComparer.OrdinalIgnoreCase).ToList();
+    }
+    // Empty selection admits untagged entries. Otherwise any selected label must match exactly.
+    public static bool MatchesTags(Entry entry,IEnumerable<string> selected)
+    {
+        var wanted=new HashSet<string>((selected??Enumerable.Empty<string>()).Select(NormalizeTag).Where(t=>t.Length>0),StringComparer.OrdinalIgnoreCase);
+        return wanted.Count==0||(entry!=null&&entry.Tags!=null&&entry.Tags.Any(t=>wanted.Contains(NormalizeTag(t))));
+    }
     public static string AuthorGitHubUrl(Entry e)
     {
         if(e==null)return null;var urls=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
