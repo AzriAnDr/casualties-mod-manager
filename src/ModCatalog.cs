@@ -16,7 +16,7 @@ public static class ModCatalog
 {
     public sealed class Entry
     {
-        public string Id, Name, Version, Author, Summary, Description;
+        public string Id, Name, Version, Author, Summary, Description, SupportedGameVersion;
         public bool? ContainsAdultContent;
         public int NexusModId;
         public string NexusGameDomain, DownloadUrl, ArchiveSha256, LastUpdated, BepinexVersion, DllVersion;
@@ -29,7 +29,7 @@ public static class ModCatalog
         public bool? Managed;
         public string Version, MatchReason, Confidence, ArchiveVersion;
         public List<string> Files = new List<string>();
-        public Dictionary<string,string> VersionsByFile = Map();
+        public Dictionary<string,string> VersionsByFile = Map(), HashesByFile = Map();
     }
     public enum VersionComparison { Older, Equal, Newer, Unknown, DifferentChannel }
     public enum UpdateState { UpdateAvailable, Current, InstalledNewer, Unknown, DifferentChannel, NotInstalled }
@@ -121,12 +121,26 @@ public static class ModCatalog
         e.DllNames=Strings(d,"dllNames",512).Where(IsDllName).Concat(e.DllSha256s.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         e.Dependencies=Strings(d,"Dependencies",256).Where(s=>Regex.IsMatch(s,@"^nexus-[1-9][0-9]{0,9}$")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         // The metadata feed's nexusTags contains actual Nexus labels, not inferred categories.
+        e.SupportedGameVersion=ReadGameVersion(d);
         e.Tags=Strings(d,"nexusTags",256).Select(NormalizeTag).Where(s=>s.Length>0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         string archive=Text(d,"SHA256",128);if(IsHash(archive))e.ArchiveSha256=archive.ToLowerInvariant();
         string download=Text(d,"DownloadUrl",4096);Uri nxm;
         if(Uri.TryCreate(download,UriKind.Absolute,out nxm)&&nxm.Scheme=="nexus"&&nxm.Host=="scavprototype"&&nxm.Query.Length==0&&nxm.Fragment.Length==0&&Regex.IsMatch(nxm.AbsolutePath,"^/"+nexus.ToString(CultureInfo.InvariantCulture)+@"/[1-9][0-9]*$"))e.DownloadUrl=download;
         return e;
     }
+    // Mod version and BepInEx version never imply game compatibility.
+    static string ReadGameVersion(Dictionary<string,object> data)
+    {
+        foreach(string field in new[]{"SupportedGameVersions","GameVersions","GameVersion","gameVersion"})
+        {
+            object value;if(!data.TryGetValue(field,out value)||value==null)continue;
+            var single=value as string;var values=single==null?(value as object[]??new object[0]):new object[]{single};
+            var versions=values.OfType<string>().Select(v=>PlainText(v,96).Trim()).Where(v=>v.Length>0&&!v.Any(Char.IsControl)).Take(12).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if(versions.Length>0)return String.Join(", ",versions);
+        }
+        return null;
+    }
+    public static string GameVersionText(Entry entry){return entry==null||String.IsNullOrWhiteSpace(entry.SupportedGameVersion)?"Не указана":entry.SupportedGameVersion;}
     static string Text(Dictionary<string,object>d,string key,int max){object v;if(!d.TryGetValue(key,out v)||v==null)return null;if(!(v is string))throw new InvalidDataException("Неверный тип поля "+key);string s=(string)v;if(s.Length>max)throw new InvalidDataException("Слишком длинное поле "+key);return s;}
     static Dictionary<string,string> ReadMap(Dictionary<string,object>d,string key,bool dllKeys)
     {
@@ -200,7 +214,7 @@ public static class ModCatalog
         if(entry==null)throw new ArgumentNullException("entry");root=GameRoot(root);Scan scan=GetScan(root);InstalledInfo managed=ReadManaged(root,entry,scan);if(managed!=null)return managed;
         var result=new InstalledInfo{Confidence="none",Managed=false};var exact=scan.Files.Where(f=>f.Hash!=null&&entry.DllSha256s.Values.Contains(f.Hash,StringComparer.OrdinalIgnoreCase)).ToList();
         var unique=exact.Where(f=>{HashSet<string>owners;return HashOwners.TryGetValue(f.Hash,out owners)&&owners.Count==1&&owners.Contains(entry.Id);}).ToList();
-        if(unique.Count>0){result.Installed=true;result.Confidence="exact-sha256";result.Files=unique.Select(f=>f.Relative).ToList();result.Partial=entry.DllSha256s.Any(pair=>!exact.Any(f=>String.Equals(f.Hash,pair.Value,StringComparison.OrdinalIgnoreCase)&&String.Equals(f.Name,pair.Key,StringComparison.OrdinalIgnoreCase)));result.MatchReason="Точное совпадение SHA-256 DLL"+(result.Partial?"; часть файлов каталога не найдена":"");FillVersions(result,unique);}
+        if(unique.Count>0){result.Installed=true;result.Confidence="exact-sha256";result.Files=unique.Select(f=>f.Relative).ToList();result.Partial=PrimaryHashes(entry).Any(pair=>!exact.Any(f=>String.Equals(f.Hash,pair.Value,StringComparison.OrdinalIgnoreCase)&&String.Equals(f.Name,pair.Key,StringComparison.OrdinalIgnoreCase)));result.MatchReason="Точное совпадение SHA-256 основных DLL"+(result.Partial?"; часть основных DLL каталога не найдена":"");FillVersions(result,unique);}
         else{
             var candidates=scan.Files.Where(f=>entry.DllNames.Contains(f.Name,StringComparer.OrdinalIgnoreCase)).ToList();result.Files=candidates.Select(f=>f.Relative).ToList();
             if(candidates.Count>0||exact.Count>0){result.Ambiguous=true;result.Confidence=exact.Count>0?"shared-dependency-sha256":"filename-only";result.MatchReason=exact.Count>0?"Найдена общая DLL: её SHA-256 встречается у нескольких модов":"Совпало только имя DLL; принадлежность моду не подтверждена";FillVersions(result,candidates);}else result.MatchReason="Подтверждённые файлы мода не найдены";
@@ -221,7 +235,17 @@ public static class ModCatalog
             info.Installed=found.Count>0;info.Partial=info.Ambiguous;info.MatchReason=info.Ambiguous?"Управляемая установка: DLL отсутствуют или изменены":"Принадлежность подтверждена манифестом менеджера и SHA-256";FillVersions(info,found);return info;
         }catch{return null;}
     }
-    static void FillVersions(InstalledInfo info,IEnumerable<ScanFile>files){foreach(ScanFile f in files)if(f.Version!=null)info.VersionsByFile[f.Relative]=f.Version;string[] versions=info.VersionsByFile.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();info.Version=versions.Length==1?versions[0]:null;}
+    static void FillVersions(InstalledInfo info,IEnumerable<ScanFile>files){foreach(ScanFile f in files){if(IsHash(f.Hash))info.HashesByFile[f.Relative]=f.Hash;if(f.Version!=null)info.VersionsByFile[f.Relative]=f.Version;}string[] versions=info.VersionsByFile.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();info.Version=versions.Length==1?versions[0]:null;}
+    static List<KeyValuePair<string,string>> PrimaryHashes(Entry entry)
+    {
+        var owners=HashOwners;
+        return entry.DllSha256s.Where(pair=>{HashSet<string> ids;return owners.TryGetValue(pair.Value,out ids)&&ids.Count==1&&ids.Contains(entry.Id);}).ToList();
+    }
+    static bool SharedDependency(Entry entry,string dll)
+    {
+        string hash;HashSet<string> ids;
+        return entry.DllSha256s.TryGetValue(dll,out hash)&&HashOwners.TryGetValue(hash,out ids)&&ids.Count>1;
+    }
     static Scan GetScan(string root)
     {
         lock(ScanGate){
@@ -251,12 +275,18 @@ public static class ModCatalog
     public static UpdateState CompareInstalled(InstalledInfo info,Entry entry)
     {
         if(info==null||entry==null)return UpdateState.Unknown;if(!info.Installed)return info.Ambiguous?UpdateState.Unknown:UpdateState.NotInstalled;if(info.Ambiguous||info.Partial)return UpdateState.Unknown;
+        // Metadata dllVersions may be BepInPlugin versions, while reflection reads AssemblyVersion.
+        // Exact primary DLL content is stronger evidence than these different version namespaces.
+        // Require every uniquely owned primary hash and its filename; shared dependencies prove nothing.
+        var primary=PrimaryHashes(entry);
+        if(primary.Count>0&&primary.All(expected=>info.HashesByFile.Any(actual=>String.Equals(DllLeaf(actual.Key),expected.Key,StringComparison.OrdinalIgnoreCase)&&String.Equals(actual.Value,expected.Value,StringComparison.OrdinalIgnoreCase))))return UpdateState.Current;
         bool older=false,newer=false,compared=false,unknown=false;
         foreach(var actual in info.VersionsByFile){
             string name=DllLeaf(actual.Key);string available;
+            if(SharedDependency(entry,name))continue;
             if(!entry.DllVersions.TryGetValue(name,out available))continue;VersionComparison c=CompareVersions(actual.Value,available);if(c==VersionComparison.DifferentChannel)return UpdateState.DifferentChannel;if(c==VersionComparison.Unknown){unknown=true;continue;}compared=true;older|=c==VersionComparison.Older;newer|=c==VersionComparison.Newer;
         }
-        foreach(string expected in entry.DllVersions.Keys)if(!info.VersionsByFile.Keys.Any(path=>String.Equals(DllLeaf(path),expected,StringComparison.OrdinalIgnoreCase)))unknown=true;
+        foreach(string expected in entry.DllVersions.Keys.Where(name=>!SharedDependency(entry,name)))if(!info.VersionsByFile.Keys.Any(path=>String.Equals(DllLeaf(path),expected,StringComparison.OrdinalIgnoreCase)))unknown=true;
         if(!compared||unknown)return UpdateState.Unknown;if(older&&newer)return UpdateState.DifferentChannel;return older?UpdateState.UpdateAvailable:newer?UpdateState.InstalledNewer:UpdateState.Current;
     }
     static string DllLeaf(string path){string name=Path.GetFileName(path);return name.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)?name.Substring(0,name.Length-".cumm-disabled".Length):name;}

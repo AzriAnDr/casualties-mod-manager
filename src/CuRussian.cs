@@ -6,7 +6,8 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
-[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.4")]
+[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.5")]
+[BepInDependency("CasualtiesMP", BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class CuRussian : BaseUnityPlugin
 {
     private const string SupportedGameVersion = "1.0.2";
@@ -38,7 +39,9 @@ public sealed class CuRussian : BaseUnityPlugin
             var tooltip = tooltipType == null ? null : AccessTools.Method(tooltipType, "_GUI_SetTooltip");
             if (tooltip != null) harmony.Patch(tooltip, prefix: new HarmonyMethod(typeof(CuRussian), "TranslateRuleTooltip"));
             if (Config.Bind("Display", "UnifiedRussianFont", true, "Использовать один шрифт для кириллицы и пунктуации, чтобы знаки не смещались. Требуется перезапуск.").Value)
-                RussianFontFix.Enable(harmony, Logger);
+                try { RussianFontFix.Enable(harmony, Logger); } catch (Exception fontError) { Logger.LogWarning("Font compatibility hooks unavailable: " + fontError.Message); }
+            if (Config.Bind("Together", "LocalizeGeneratedSpeech", true, "Показывать игровые реплики Together на языке получателя; ручной чат не переводится.").Value)
+                try { RussianNetworkText.Enable(harmony, Logger, russian); } catch (Exception networkError) { Logger.LogWarning("Together speech localization unavailable: " + networkError.Message); }
             Apply();
             Logger.LogInfo("Russian enabled: game 1.0.2, Together " + multiplayer.Count + " strings. No saved language preference changed.");
         }

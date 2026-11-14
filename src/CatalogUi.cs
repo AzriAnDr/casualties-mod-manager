@@ -30,7 +30,7 @@ public sealed partial class Manager
     private FlowLayoutPanel builtinActions, communityActions;
     private FileSystemWatcher inboxWatcher;
     private System.Windows.Forms.Timer searchTimer, inboxTimer;
-    private bool loadingCommunity, scanningInbox;
+    private bool loadingCommunity, scanningInbox, compactCatalogDetails;
     private readonly Dictionary<string,ArchiveInbox.Item> inboxCache = new Dictionary<string,ArchiveInbox.Item>(StringComparer.OrdinalIgnoreCase);
     private sealed class CommunitySelection { public CommunityInstaller.InstalledRecord Record; public ModCatalog.Entry Entry; public ModCatalog.InstalledInfo Info; }
     private sealed class DarkTabs : TabControl
@@ -84,28 +84,32 @@ public sealed partial class Manager
         view.DrawColumnHeader+=delegate(object sender,DrawListViewColumnHeaderEventArgs e){using(var brush=new SolidBrush(Border))e.Graphics.FillRectangle(brush,e.Bounds);TextRenderer.DrawText(e.Graphics,e.Header.Text,Font,e.Bounds,Ink,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);};
         view.DrawItem+=delegate(object sender,DrawListViewItemEventArgs e){if(view.View!=View.Details)e.DrawDefault=true;};
         view.DrawSubItem+=delegate(object sender,DrawListViewSubItemEventArgs e){using(var brush=new SolidBrush(e.Item.Selected?Color.FromArgb(26,74,73):Surface))e.Graphics.FillRectangle(brush,e.Bounds);var rect=e.Bounds;rect.X+=6;rect.Width-=8;TextRenderer.DrawText(e.Graphics,e.SubItem.Text,Font,rect,Ink,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);};
-        view.SizeChanged+=delegate{int width=Math.Max(200,view.ClientSize.Width-24);for(int i=0;i<view.Columns.Count;i++)view.Columns[i].Width=width/view.Columns.Count;};
+        bool sizingColumns=false;
+        view.SizeChanged+=delegate{if(sizingColumns)return;sizingColumns=true;try{int width=Math.Max(80,view.ClientSize.Width-24);int[] shares=view.Columns.Count==5?new[]{34,18,12,16,20}:view.Columns.Count==4?new[]{42,22,12,24}:null;for(int i=0;i<view.Columns.Count;i++)view.Columns[i].Width=shares==null?width/view.Columns.Count:width*shares[i]/100;}finally{sizingColumns=false;}};
         view.SmallImageList=new ImageList{ImageSize=new Size(1,32)};view.SmallImageList.Images.Add(new Bitmap(1,32));return view;
     }
     private void BuildCatalogPage(TabPage page)
     {
-        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var filters=new TableLayoutPanel{Dock=DockStyle.Fill,AutoSize=true,ColumnCount=2,RowCount=2};filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));filters.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var searchLabel=new Label{Text="Поиск по названию, автору или описанию",AutoSize=true,ForeColor=Muted};filters.Controls.Add(searchLabel,0,0);filters.SetColumnSpan(searchLabel,2);
-        catalogSearch=DarkText(false);catalogSearch.Margin=new Padding(0,8,10,8);var refresh=MakeButton("Проверить обновления",205,false);refresh.Click+=async delegate{await ReloadCommunity(true);};filters.Controls.Add(catalogSearch,0,1);filters.Controls.Add(refresh,1,1);
-        layout.Controls.Add(filters,0,0);
-        var filterRows=new TableLayoutPanel{Dock=DockStyle.Fill,AutoSize=true,ColumnCount=1,RowCount=2};filterRows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));filterRows.RowStyles.Add(new RowStyle(SizeType.AutoSize));filterRows.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var checks=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true};installedOnly=new CheckBox{Text="Установленные",AutoSize=true,ForeColor=Ink};updatesOnly=new CheckBox{Text="Есть обновление",AutoSize=true,ForeColor=Ink};showAdult=new CheckBox{Text="Показывать 18+",AutoSize=true,ForeColor=Muted};checks.Controls.AddRange(new Control[]{installedOnly,updatesOnly,showAdult});filterRows.Controls.Add(checks,0,0);
-        var tags=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true,WrapContents=true};catalogTagsButton=MakeButton("Теги: все…",155,false);catalogTagsButton.Click+=delegate{ChooseCatalogTags();};catalogTagsClear=MakeButton("Сбросить теги",150,false);catalogTagsClear.Click+=delegate{selectedCatalogTags.Clear();RenderCatalog();};catalogTagsSummary=new Label{AutoSize=true,ForeColor=Muted,Margin=new Padding(8,10,0,0)};tags.SizeChanged+=delegate{catalogTagsSummary.MaximumSize=new Size(Math.Max(160,tags.ClientSize.Width-330),0);};tags.Controls.AddRange(new Control[]{catalogTagsButton,catalogTagsClear,catalogTagsSummary});filterRows.Controls.Add(tags,0,1);layout.Controls.Add(filterRows,0,1);UpdateTagFilterCaption();
-        var split=new SplitContainer{Dock=DockStyle.Fill,Orientation=Orientation.Vertical,BackColor=Border,SplitterWidth=6};split.Panel1.BackColor=Canvas;split.Panel2.BackColor=Canvas;split.SizeChanged+=delegate{if(split.Width>600)split.SplitterDistance=split.Width*54/100;};
-        catalogList=DarkList("Мод / автор","Версия","Состояние");catalogList.SelectedIndexChanged+=delegate{ShowCatalogDetails();};split.Panel1.Controls.Add(catalogList);
-        var detail=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Padding=new Padding(10,0,0,0)};detail.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));detail.RowStyles.Add(new RowStyle(SizeType.Percent,100));detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        catalogHeading=new Label{Text="Выбери мод слева",AutoSize=true,ForeColor=Accent,Font=new Font(Font.FontFamily,13,FontStyle.Bold)};catalogFacts=new Label{AutoSize=true,ForeColor=Muted,Margin=new Padding(0,8,0,8)};detail.SizeChanged+=delegate{catalogHeading.MaximumSize=catalogFacts.MaximumSize=new Size(Math.Max(150,detail.ClientSize.Width-15),0);};catalogDescription=DarkText(true);catalogDescription.Text="Поиск по названию, автору и краткому описанию.\r\nСовместимость с полной игрой и Together проверяйте в описании автора.";
-        var buttons=new FlowLayoutPanel{AutoSize=true,Dock=DockStyle.Fill};catalogNexus=MakeButton("Скачать на Nexus",170,true);catalogGithub=MakeButton("Скачать с GitHub…",185,false);catalogImport=MakeButton("Установить ZIP…",170,false);catalogAdopt=MakeButton("Управлять копией…",185,false);
+        // Explicit toolbar heights keep autosized flow panels from consuming the list's space.
+        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Margin=Padding.Empty};layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,66));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,76));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,28));
+        var filters=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,Margin=Padding.Empty};filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));filters.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,210));filters.RowStyles.Add(new RowStyle(SizeType.Absolute,22));filters.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var searchLabel=new Label{Text="Найти мод · название, автор или описание",AutoSize=true,ForeColor=Muted,Margin=Padding.Empty};filters.Controls.Add(searchLabel,0,0);filters.SetColumnSpan(searchLabel,2);
+        catalogSearch=DarkText(false);catalogSearch.Anchor=AnchorStyles.Left|AnchorStyles.Right;catalogSearch.Margin=new Padding(0,0,12,8);var refresh=MakeButton("Обновить каталог",200,false);refresh.Dock=DockStyle.Fill;refresh.Margin=new Padding(0,0,0,8);refresh.Click+=async delegate{await ReloadCommunity(true);};filters.Controls.Add(catalogSearch,0,1);filters.Controls.Add(refresh,1,1);layout.Controls.Add(filters,0,0);
+        var filterRows=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=Padding.Empty};filterRows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));filterRows.RowStyles.Add(new RowStyle(SizeType.Absolute,46));filterRows.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var checks=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,Margin=Padding.Empty,Padding=Padding.Empty};
+        installedOnly=new CheckBox{Text="Установленные",AutoSize=true,ForeColor=Ink,Margin=new Padding(0,12,16,0)};updatesOnly=new CheckBox{Text="Есть обновление",AutoSize=true,ForeColor=Ink,Margin=new Padding(0,12,16,0)};showAdult=new CheckBox{Text="18+",AutoSize=true,ForeColor=Muted,Margin=new Padding(0,12,20,0)};
+        catalogTagsButton=MakeButton("Теги: все…",155,false);catalogTagsButton.Margin=new Padding(0,0,8,0);catalogTagsButton.Click+=delegate{ChooseCatalogTags();};catalogTagsClear=MakeButton("Сбросить теги",145,false);catalogTagsClear.Margin=new Padding(0);catalogTagsClear.Click+=delegate{selectedCatalogTags.Clear();RenderCatalog();};
+        checks.Controls.AddRange(new Control[]{installedOnly,updatesOnly,showAdult,catalogTagsButton,catalogTagsClear});filterRows.Controls.Add(checks,0,0);
+        catalogTagsSummary=new Label{Dock=DockStyle.Fill,AutoEllipsis=true,ForeColor=Muted,Margin=new Padding(0,0,0,6),TextAlign=ContentAlignment.MiddleLeft};filterRows.Controls.Add(catalogTagsSummary,0,1);layout.Controls.Add(filterRows,0,1);UpdateTagFilterCaption();
+        var split=new SplitContainer{Name="CatalogContent",Size=new Size(1000,450),Dock=DockStyle.Fill,Margin=Padding.Empty,Orientation=Orientation.Vertical,BackColor=Border,SplitterWidth=10,Panel1MinSize=390,Panel2MinSize=300};split.Panel1.BackColor=Canvas;split.Panel2.BackColor=Canvas;split.SizeChanged+=delegate{if(split.Width>600)split.SplitterDistance=Math.Max(split.Panel1MinSize,Math.Min(split.Width-split.Panel2MinSize-split.SplitterWidth,split.Width*57/100));};
+        catalogList=DarkList("Мод","Автор","Мод v.","Игра","Состояние");catalogList.Name="CatalogModList";catalogList.SelectedIndexChanged+=delegate{ShowCatalogDetails();};split.Panel1.Controls.Add(catalogList);
+        var detail=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Margin=Padding.Empty,Padding=new Padding(14,0,0,0)};detail.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));detail.RowStyles.Add(new RowStyle(SizeType.Absolute,36));detail.RowStyles.Add(new RowStyle(SizeType.Absolute,50));detail.RowStyles.Add(new RowStyle(SizeType.Percent,100));detail.RowStyles.Add(new RowStyle(SizeType.Absolute,84));
+        catalogHeading=new Label{Text="Выбери мод слева",Dock=DockStyle.Fill,AutoEllipsis=true,ForeColor=Accent,Font=new Font(Font.FontFamily,13,FontStyle.Bold)};catalogFacts=new Label{Dock=DockStyle.Fill,AutoEllipsis=true,ForeColor=Muted,Margin=new Padding(0,4,0,4)};compactCatalogDetails=false;detail.SizeChanged+=delegate{catalogHeading.MaximumSize=catalogFacts.MaximumSize=new Size(Math.Max(150,detail.ClientSize.Width-15),0);bool compact=detail.Height<260;if(compact!=compactCatalogDetails){compactCatalogDetails=compact;detail.RowStyles[1].Height=compact?0:50;catalogFacts.Visible=!compact;if(catalogDescription!=null)ShowCatalogDetails();}};catalogDescription=DarkText(true);catalogDescription.Name="CatalogDescription";catalogDescription.Margin=new Padding(0,4,0,8);catalogDescription.Text="Поиск по названию, автору и краткому описанию.\r\nСовместимость с полной игрой и Together проверяйте в описании автора.";
+        var buttons=new TableLayoutPanel{Dock=DockStyle.Fill,Height=84,Margin=Padding.Empty,ColumnCount=2,RowCount=2};buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));buttons.RowStyles.Add(new RowStyle(SizeType.Percent,50));buttons.RowStyles.Add(new RowStyle(SizeType.Percent,50));catalogNexus=MakeButton("Скачать на Nexus",170,true);catalogGithub=MakeButton("Скачать с GitHub…",185,false);catalogImport=MakeButton("Установить ZIP…",170,false);catalogAdopt=MakeButton("Управлять копией…",185,false);
         catalogNexus.Click+=delegate{var e=SelectedCatalog();if(e!=null)try{Process.Start(ModCatalog.NexusUrl(e));SetStatus(e.Name+": открыта страница Nexus. Скачайте ZIP; он появится во вкладке «Загрузки».",false);}catch(Exception error){ShowFailure(e.Name+": страница Nexus",error);}};
-        catalogGithub.Click+=async delegate{var e=SelectedCatalog();if(e!=null)await DownloadFromGitHub(e);};catalogImport.Click+=delegate{var e=SelectedCatalog();if(e!=null)ChooseAndInstall(e);};catalogAdopt.Click+=delegate{var e=SelectedCatalog();if(e!=null)AdoptDetected(e);};buttons.Controls.AddRange(new Control[]{catalogNexus,catalogGithub,catalogImport,catalogAdopt});
+        catalogGithub.Click+=async delegate{var e=SelectedCatalog();if(e!=null)await DownloadFromGitHub(e);};catalogImport.Click+=delegate{var e=SelectedCatalog();if(e!=null)ChooseAndInstall(e);};catalogAdopt.Click+=delegate{var e=SelectedCatalog();if(e!=null)AdoptDetected(e);};var actionButtons=new[]{catalogNexus,catalogGithub,catalogImport,catalogAdopt};for(int i=0;i<actionButtons.Length;i++){actionButtons[i].Dock=DockStyle.Fill;actionButtons[i].Margin=new Padding(i%2==0?0:4,i<2?0:4,i%2==0?4:0,i<2?4:0);buttons.Controls.Add(actionButtons[i],i%2,i/2);}
         detail.Controls.Add(catalogHeading,0,0);detail.Controls.Add(catalogFacts,0,1);detail.Controls.Add(catalogDescription,0,2);detail.Controls.Add(buttons,0,3);split.Panel2.Controls.Add(detail);layout.Controls.Add(split,0,2);
-        catalogStatus=new Label{Text="Загрузка каталога…",ForeColor=Muted,AutoSize=true,Margin=new Padding(0,10,0,0)};layout.Controls.Add(catalogStatus,0,3);page.Controls.Add(layout);
+        catalogStatus=new Label{Text="Загрузка каталога…",ForeColor=Muted,Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft,Margin=new Padding(0,6,0,0)};layout.Controls.Add(catalogStatus,0,3);page.Controls.Add(layout);
         searchTimer=new System.Windows.Forms.Timer{Interval=220};searchTimer.Tick+=delegate{searchTimer.Stop();RenderCatalog();};catalogSearch.TextChanged+=delegate{searchTimer.Stop();searchTimer.Start();};installedOnly.CheckedChanged+=delegate{RenderCatalog();};updatesOnly.CheckedChanged+=delegate{RenderCatalog();};showAdult.CheckedChanged+=delegate{RenderCatalog();};ShowCatalogDetails();
     }
     private async Task ReloadCommunity(bool force)
@@ -155,7 +159,7 @@ public sealed partial class Manager
             if(!ModCatalog.MatchesTags(e,selectedCatalogTags))continue;
             ModCatalog.InstalledInfo installed;bool present=communityDetected.TryGetValue(e.Id,out installed)&&installed.Installed;
             if(installedOnly.Checked&&!present)continue;if(updatesOnly.Checked&&(!present||ModCatalog.CompareInstalled(installed,e)!=ModCatalog.UpdateState.UpdateAvailable))continue;
-            var row=new ListViewItem(new[]{e.Name+" / "+e.Author,e.Version,UpdateText(e)}){Tag=e,ToolTipText=ModCatalog.SummaryText(e,400)};catalogList.Items.Add(row);if(e.Id==selected)row.Selected=true;
+            var row=new ListViewItem(new[]{e.Name,e.Author,e.Version,ModCatalog.GameVersionText(e).Replace("Не указана","Не указ."),UpdateText(e)}){Tag=e,ToolTipText="Версия игры: "+ModCatalog.GameVersionText(e)+"\n"+ModCatalog.SummaryText(e,400)};catalogList.Items.Add(row);if(e.Id==selected)row.Selected=true;
         }
         catalogList.EndUpdate();UpdateTagFilterCaption();ShowCatalogDetails();
     }
@@ -197,8 +201,8 @@ public sealed partial class Manager
     {
         if(catalogNexus==null)return;var e=SelectedCatalog();catalogNexus.Enabled=catalogImport.Enabled=e!=null&&!busy;catalogGithub.Enabled=false;catalogAdopt.Enabled=false;
         if(e==null){catalogHeading.Text="Выбери мод слева";catalogFacts.Text="Поищи название или автора. Список работает и без выбранной папки игры.";catalogDescription.Text="Выберите запись, чтобы прочитать описание автора и проверить зависимости.\r\n\r\nДля Nexus скачайте ZIP на сайте. Завершённый архив появится во вкладке «Загрузки»; установка потребует проверки списка файлов.";return;}
-        catalogHeading.Text=e.Name;catalogFacts.Text="Автор: "+e.Author+"\nВерсия Nexus: "+e.Version+" · "+UpdateText(e)+"\nСовместимость с 1.0.2 и Together: проверяйте у автора";
-        catalogDescription.Text=ModCatalog.PlainText(e.Description,70000);
+        catalogHeading.Text=e.Name;catalogFacts.Text="Автор: "+e.Author+"\nВерсия мода: "+e.Version+" · "+UpdateText(e);
+        catalogDescription.Text=(compactCatalogDetails?catalogFacts.Text.Replace("\r\n","\n").Replace("\n","\r\n")+"\r\n\r\n":"")+"Версия игры (по данным автора): "+ModCatalog.GameVersionText(e)+". Совместимость с Together проверяйте у автора.\r\n\r\n"+ModCatalog.PlainText(e.Description,70000);
         if(e.Dependencies!=null&&e.Dependencies.Count>0)catalogDescription.Text="Зависимости: "+String.Join(", ",e.Dependencies.ToArray())+"\r\n\r\n"+catalogDescription.Text;
         if(e.Tags!=null&&e.Tags.Count>0)catalogDescription.Text="Теги Nexus: "+String.Join(", ",e.Tags.ToArray())+"\r\n\r\n"+catalogDescription.Text;
         catalogGithub.Enabled=!busy&&!String.IsNullOrEmpty(ModCatalog.AuthorGitHubUrl(e));
@@ -245,13 +249,20 @@ public sealed partial class Manager
         {
             ids.Add(record.Id);var entry=communityEntries.FirstOrDefault(e=>e.Id==record.Id);ModCatalog.InstalledInfo info=null;if(entry!=null)communityDetected.TryGetValue(entry.Id,out info);
             var selection=new CommunitySelection{Record=record,Entry=entry,Info=info};
-            list.Items.Add(new ListViewItem(new[]{record.Name,record.Disabled?"Отключён":"Из каталога · под управлением",record.Version+" (пакет)",entry==null?"Нужен каталог":UpdateText(entry)}){Tag=selection});
+            list.Items.Add(new ListViewItem(new[]{record.Name,record.Disabled?"Отключён":"Из каталога · под управлением",record.Version+" (пакет)",entry==null?"Нужен каталог":UpdateText(entry),InstalledGameVersion(entry,info,record.Version)}){Tag=selection});
         }
         foreach(var e in communityEntries)
         {
             ModCatalog.InstalledInfo info;if(ids.Contains(e.Id)||IsBuiltinEntry(e)||!communityDetected.TryGetValue(e.Id,out info)||!info.Installed)continue;
-            list.Items.Add(new ListViewItem(new[]{e.Name,"Из каталога · вручную",info.Version,UpdateText(e)}){Tag=new CommunitySelection{Entry=e,Info=info}});
+            list.Items.Add(new ListViewItem(new[]{e.Name,"Из каталога · вручную",info.Version,UpdateText(e),InstalledGameVersion(e,info,null)}){Tag=new CommunitySelection{Entry=e,Info=info}});
         }
+    }
+    private string InstalledGameVersion(ModCatalog.Entry entry,ModCatalog.InstalledInfo info,string archiveVersion)
+    {
+        if(entry==null)return "Не указана";
+        bool matches=info!=null&&ModCatalog.CompareInstalled(info,entry)==ModCatalog.UpdateState.Current;
+        if(!matches&&archiveVersion!=null)matches=ModCatalog.CompareVersions(archiveVersion,entry.Version)==ModCatalog.VersionComparison.Equal;
+        return matches?ModCatalog.GameVersionText(entry):"Не указана";
     }
     private CommunitySelection SelectedCommunity(){return list.SelectedItems.Count==0?null:list.SelectedItems[0].Tag as CommunitySelection;}
     private bool ShowCommunitySelection()
@@ -393,7 +404,7 @@ public sealed partial class Manager
             bool allowed=archive?(host=="github.com"||redirect>0&&(host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com")):host=="api.github.com";
             if(!allowed||current.Scheme!="https"||!current.IsDefaultPort||current.UserInfo.Length!=0||current.Fragment.Length!=0)throw new InvalidDataException("Неожиданный адрес сервера GitHub.");
             int remaining=deadlineMs-(int)timer.ElapsedMilliseconds;if(remaining<=0)throw new WebException("Истекло время загрузки GitHub.",WebExceptionStatus.Timeout);
-            var request=(HttpWebRequest)WebRequest.Create(current);request.UserAgent="CasualtiesModManager/0.5.1";request.AllowAutoRedirect=false;request.Timeout=request.ReadWriteTimeout=remaining;request.KeepAlive=false;
+            var request=(HttpWebRequest)WebRequest.Create(current);request.UserAgent="CasualtiesModManager/0.5.2";request.AllowAutoRedirect=false;request.Timeout=request.ReadWriteTimeout=remaining;request.KeepAlive=false;
             using(var response=(HttpWebResponse)request.GetResponse())
             {
                 int status=(int)response.StatusCode;if(status>=300&&status<400){string location=response.Headers["Location"];if(redirect==5||String.IsNullOrWhiteSpace(location))throw new InvalidDataException("Некорректное перенаправление GitHub.");current=new Uri(current,location);continue;}

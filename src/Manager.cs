@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.1.0")]
-[assembly: AssemblyFileVersion("0.5.1.0")]
+[assembly: AssemblyVersion("0.5.2.0")]
+[assembly: AssemblyFileVersion("0.5.2.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.1";
+    const string LauncherVersion = "0.5.2";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -94,7 +94,7 @@ public sealed partial class Manager : Form
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
 
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 2, Margin = new Padding(0, 0, 0, 18) };
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, Height = 90, AutoSize = false, ColumnCount = 2, RowCount = 2, Margin = new Padding(0, 0, 0, 10) };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var title = new Label { Text = "CASUALTIES: UNKNOWN", Font = new Font("Segoe UI Semibold", 21), AutoSize = true, ForeColor = Ink, Margin = Padding.Empty };
@@ -112,7 +112,8 @@ public sealed partial class Manager : Form
         header.Controls.Add(title, 0, 0); header.Controls.Add(subtitle, 0, 1); header.Controls.Add(launcherActions, 1, 0); header.SetRowSpan(launcherActions, 2);
         layout.Controls.Add(header, 0, 0);
 
-        var path = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, RowCount = 2, Margin = new Padding(0, 0, 0, 16) };
+        var path = new TableLayoutPanel { Dock = DockStyle.Fill, Height = 70, AutoSize = false, ColumnCount = 3, RowCount = 2, Margin = new Padding(0, 0, 0, 12) };
+        path.RowStyles.Add(new RowStyle(SizeType.Absolute,22));path.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         path.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); path.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); path.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var pathLabel = new Label { Text = "ПАПКА ИГРЫ", ForeColor = Muted, AutoSize = true, Font = new Font("Segoe UI", 9), Margin = new Padding(0, 0, 0, 8) };
         game = new TextBox { Dock = DockStyle.Fill, Text = DefaultPath(), BackColor = Surface, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 7, 10, 0) };
@@ -123,14 +124,14 @@ public sealed partial class Manager : Form
         layout.Controls.Add(path, 0, 1);
 
         list = new ListView { Dock = DockStyle.Fill, MinimumSize = new Size(0, 185), View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, HeaderStyle = ColumnHeaderStyle.Nonclickable, BackColor = Surface, ForeColor = Ink, BorderStyle = BorderStyle.None, OwnerDraw = true, ShowItemToolTips = true, Margin = new Padding(0, 0, 0, 16) };
-        list.Columns.Add("Модуль"); list.Columns.Add("Состояние"); list.Columns.Add("Версия DLL"); list.Columns.Add("Доступно");
+        list.Columns.Add("Модуль"); list.Columns.Add("Состояние"); list.Columns.Add("Версия DLL"); list.Columns.Add("Доступно"); list.Columns.Add("Версия игры");
         list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e) { using (var b = new SolidBrush(Border)) e.Graphics.FillRectangle(b, e.Bounds); TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height), Ink, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis); };
         list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { if (list.View != View.Details) e.DrawDefault = true; };
         list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { bool selected = e.Item.Selected; Color color = selected ? Color.FromArgb(26, 74, 73) : Surface; using (var b = new SolidBrush(color)) e.Graphics.FillRectangle(b, e.Bounds); Color text = e.ColumnIndex == 1 && !selected ? Accent : Ink; TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height), text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis); };
         // A scaled image list supplies readable, evenly spaced native rows without custom hit-testing.
         list.SmallImageList = new ImageList { ImageSize = new Size(1, 38), ColorDepth = ColorDepth.Depth32Bit };
         list.SmallImageList.Images.Add(new Bitmap(1, 38));
-        list.SizeChanged += delegate { int width = Math.Max(200, list.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4); list.Columns[0].Width = width * 24 / 100; list.Columns[1].Width = width * 26 / 100; list.Columns[2].Width = width * 15 / 100; list.Columns[3].Width = width - list.Columns[0].Width - list.Columns[1].Width - list.Columns[2].Width; };
+        bool sizingModuleColumns=false;list.SizeChanged += delegate {if(sizingModuleColumns)return;sizingModuleColumns=true;try{int width=Math.Max(200,list.ClientSize.Width-SystemInformation.VerticalScrollBarWidth-4);int[] shares={23,25,12,18,22};for(int i=0;i<5;i++)list.Columns[i].Width=width*shares[i]/100;}finally{sizingModuleColumns=false;}};
         list.SelectedIndexChanged += delegate { UpdateDetails(); };
         layout.Controls.Add(list, 0, 2);
 
@@ -160,6 +161,7 @@ public sealed partial class Manager : Form
         log = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Surface, ForeColor = Muted, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9), Margin = Padding.Empty };
         layout.Controls.Add(log, 0, 6);
         InstallCatalogUi(layout, information, actions);
+        Shown += delegate { LauncherUpdate.CleanupPreviousBackup(); };
         Controls.Add(layout);
         Shown += delegate { RefreshList(); };
     }
@@ -216,7 +218,7 @@ public sealed partial class Manager : Form
             Directory.CreateDirectory(SettingsDir); File.WriteAllText(Path.Combine(SettingsDir, "game-path.txt"), root);
             int index = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : 0;
             list.BeginUpdate();
-            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
+            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m),ModuleGameVersion(m,version) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
             finally { list.EndUpdate(); }
             AppendCommunityRows(root);
             UpdateDetails();
@@ -224,7 +226,7 @@ public sealed partial class Manager : Form
         catch (Exception e)
         {
             list.Items.Clear();
-            foreach (Module m in Catalog) list.Items.Add(new ListViewItem(new[] { m.Name, "Выберите папку игры", "—", Available(m) }){Tag=m});
+            foreach (Module m in Catalog) list.Items.Add(new ListViewItem(new[] { m.Name, "Выберите папку игры", "—", Available(m),ModuleGameVersion(m) }){Tag=m});
             if (list.Items.Count > 0) list.Items[0].Selected = true;
             UpdateDetails(); SetStatus("Папка игры не найдена или недоступна. Нажмите «Выбрать…». Встроенные пакеты уже есть в EXE.", true); WriteLog("Проверка папки: " + e.Message);
         }
@@ -367,6 +369,15 @@ public sealed partial class Manager : Form
     static bool KnownTogether(string p){string[] names={"CasualtiesMP.dll","opus.dll","OpusSharp.Core.dll","RefMagic.dll","LiteNetLib.dll","LiteEntitySystem.dll","System.Runtime.CompilerServices.Unsafe.dll","K4os.Compression.LZ4.dll","Multiupdater.dll"};return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)&&names.Contains(Path.GetFileName(p),StringComparer.OrdinalIgnoreCase);}
     static IEnumerable<string> EnumerateSafe(string root,string dir){Under(root,dir.Substring(root.Length+1));foreach(string f in Directory.GetFiles(dir)){Under(root,f.Substring(root.Length+1));yield return f;}foreach(string child in Directory.GetDirectories(dir)){Under(root,child.Substring(root.Length+1)+"/test");foreach(string f in EnumerateSafe(root,child))yield return f;}}
     static string VersionOf(string root,Module m,Manifest mf){IEnumerable<string> paths=mf!=null?mf.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(f=>Under(root,Actual(mf,f))):Detect(root,m).Where(p=>p.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)).Select(p=>Under(root,p));foreach(string p in paths.OrderBy(p=>Path.GetFileName(p).Equals(m.Dll,StringComparison.OrdinalIgnoreCase)?0:1)){try{return AssemblyName.GetAssemblyName(p).Version.ToString();}catch{}}return "—";}
+    static string ModuleGameVersion(Module module,string installedVersion=null)
+    {
+        string version=installedVersion;if(String.IsNullOrWhiteSpace(version)||version=="—")version=BundledVersion(module.Id);
+        System.Version parsed;if(!System.Version.TryParse(version,out parsed))return "Не указана";
+        string numeric=parsed.Major+"."+parsed.Minor+"."+Math.Max(0,parsed.Build);
+        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
+        if(module.Id=="wiki"){if(numeric=="0.2.1")return "1.0.2 · WIP";if(numeric=="0.2.0")return "1.0.1 · WIP";}
+        return "Не указана";
+    }
     static string Available(Module m){return m.Resource != null ? BundledVersion(m.Id) + " (в EXE)" : m.Id=="together"?(KnownTogetherVersion??"Проверить fullgame-релиз"):"1.0.2, совместимость не подтверждена";}
     static string Source(Module m){return m.Id=="together"?"https://github.com/creaturefeaturelarry/casualties-together/releases":m.Id=="unlock"?"https://www.nexusmods.com/scavprototype/mods/884":"bundled";}
     static string ScanText(string root){return Json.Serialize(VisibleModules(root).Select(m=>new{module=m.Id,available=Available(m),source=Source(m),compatibility=m.Id=="unlock"?"unverified":m.Id=="together"?"read release notes":"game 1.0.2",managed=Load(root,m)!=null,disabled=Load(root,m)!=null&&Load(root,m).Disabled,version=VersionOf(root,m,Load(root,m)),detected=Detect(root,m)}).ToArray());}

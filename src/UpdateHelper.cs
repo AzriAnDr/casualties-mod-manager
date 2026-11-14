@@ -47,7 +47,7 @@ internal static class UpdateHelper
             VerifyExe(target, hash);
             Log("Обновление установлено; резервная копия: " + backup);
             Process.Start(new ProcessStartInfo(target) { UseShellExecute = true, WorkingDirectory = targetDir });
-            Log("Обновлённый менеджер запущен.");
+            Log("Запуск нового менеджера запрошен. Резервная копия сохраняется до инициализации его окна.");
             return 0;
         }
         catch (Exception error)

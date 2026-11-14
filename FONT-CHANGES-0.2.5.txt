@@ -1,0 +1,27 @@
+Font fix source audit — game1.0.2 / CuRussian0.2.5
+
+Evidence from current installed Unity.TextMeshPro.dll (decompiled into this directory):
+- Both TextMeshPro.SetArraySizes and TextMeshProUGUI.SetArraySizes establish m_currentFontAsset/m_currentMaterial, reset material-reference indices, and assign per-character/submesh materials before GenerateTextMesh.
+- The former OnPreRenderObject prefix was already before ParseInputText. Therefore “the old prefix was definitely too late” is not established.
+- The former post-render callback forcibly assigned renderer.sharedMaterial after geometry, while TMP can have several atlas/material references and sprite submeshes. This extra renderer write is removed.
+- The former selector could choose a generic fallback or OS Consolas/Arial, and only activated for text containing Cyrillic. Separate punctuation-only runs could retain a different family.
+- The former HasCharacters(...tryAddCharacter:true) inspection could grow shared dynamic game font assets.
+
+Current source:
+- Preparation is attached to both SetArraySizes prefixes, including measurement/GetTextInfo paths, before TMP builds its own glyph/material indices.
+- Uses a complete original native font when available; otherwise uses the game's embedded RetroGamingFIXED native Font. No external font file, OS font or network download.
+- Generates private TMP atlases using the original sample point size/render mode/padding; component size, font style, transforms and text are not rewritten.
+- Includes all163 core glyphs:95 printable ASCII,66 Russian letters includingЁ/ё, and«».
+- Pixel-family sources are routed even for punctuation-only/number-only components.
+- Per-component material preserves the original shader/preset while assigning the private atlas and its shader scale/texture dimensions. Native world UpdateMaterial is invoked before the glyph pass. No post-render renderer override.
+- Only private generated fonts receive glyphs/character aliases. Shared game font tables/metrics remain unchanged.
+- Original rich-text, sprite IDs and text remain untouched. Bold/italic are handled by TMP with copied synthetic style values, rather than switching back to unrelated alternate typefaces.
+- Source RetroGamingFIXED lacks em/en dash, mathematical minus and NBSP; private aliases use its own hyphen/space glyph, by coordinator approval. Ellipsis and numero are not reduced to other characters: normal TMP fallback remains and logs once per missing symbol.
+
+Checks:
+python -X utf8 work/font052-tests/validate.py passes against the extracted actual game font and current TMP1.0.2 source.
+A uint/int overload mismatch in HasCharacter was fixed after the first coordinator build.
+Final plugin compile is performed by the coordinator with the companion network patch; do not launch the game to validate this report.
+
+Limitations:
+The atlas/submesh mismatch is a source-supported diagnosis consistent with the screenshots, not a reproduced live diagnosis. World signs, speech punctuation, bold/italic and rare symbols still require user in-game QA. A former DOS-only source has no Cyrillic in its native TTF; Russian must use the game's Retro Gaming face, not a nonexistent Cyrillic DOS face.

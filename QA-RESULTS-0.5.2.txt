@@ -1,0 +1,29 @@
+Casualties Mod Manager 0.5.2 / CuRussian 0.2.5 — local QA
+2026-11-14
+
+Completed:
+- Compact catalog/search/filter layout, separate author/version/game compatibility columns, fixed action grid, compact details on small windows. Avoided recursive ListView resizing; no large blank autosized filter area.
+- Installed and catalog game-compatibility columns. Explicit source fields only, never mod/BepInEx version inference. Historic Russian0.2.0-0.2.3=game1.0.1; Russian0.2.4/0.2.5=1.0.2; wiki0.2.0=1.0.1WIP,0.2.1=1.0.2WIP. Latest catalog compatibility not attributed to an older installed archive.
+- On initialized window startup, cleanup recognizes only local regular older manager EXE backups with exact own names/identity/version. Mod backups/unknown/locked/same-or-newer files retained. Old0.5.1 helper transition supported.
+- Font correction now runs before TMP material/glyph indices. Private fonts generated from game-native faces (RetroGamingFIXED contains Cyrillic), no OS replacement, no late renderer material overwrite or shared glyph mutation. Text/sprite IDs/size/style unchanged. Private hyphen aliases for dash variants and space alias for NBSP; rare ellipsis/numero retain normal fallback.
+- Together5.5 generated speech presentation hooks, canonical EN outgoing known lines + receiver-local mapping, no packet schema change. Soft dependency CasualtiesMP ensures optional Together first. Typed chat excluded. Unknown/distorted/ambiguous lines retained; console-forced known phrases on the generated receive channel may also localize.
+
+Validation:
+- Final plugin and manager build:0errors,0warnings against game1.0.2.
+- Offscreen WinForms render1100x880,950x760,1400x1000 passed. List heights326/188/446; description heights144/56/264. No Show/Application.Run; startup cleanup not invoked by render harness.
+-11 compatibility assertions passed; mod/loader version never treated as game version.
+-8 isolated backup fixture groups passed (own legacy/generated, identity and file version, locks, unrelated files, no non-manager public cleanup).
+- Font source coverage checked from actual game-native TTF:163 core characters including all ASCII punctuation, CyrillicЁ/ё; current TMP material-index implementation inspected. GPU rendering NOT tested.
+-69 network mapping/scope checks passed using actual locale data and synthetic hooks.2933 static character phrases assessed:2890 paired,43 ambiguous unchanged;105limb templates with15known limb IDs. Actual Together5.5.0 method signatures verified with Cecil, including in-string send parameter.
+- Defender1.463.291.0 enabled: custom scan completed events1000/1001 ID A06FCC5A-1BE5-4300-83AE-B9DF4E4390EF;0new detections.
+
+Outstanding:
+Actual signs/materials/punctuation, successful self-update-close-restart/cleanup, and two-client multiplayer delivery still need user game QA. No game launch or real game file mutation. QA completed before publication. Microsoft0.5.0 verdict does not cover this changed binary.
+
+False update regression:
+- Actual Olivide1.2 installed DLL matched latest primary SHA ddf2ccb1165dc20977d18d798addbec7f5fccc1771ffcd10a7cb02c6c047dbeb, despite AssemblyVersion0.0.0.0 vs metadata BepInPlugin1.0.0. Now Current.
+-23 regression checks passed, including older/newer, modified/missing managed files, missing primary, shared dependencies and conservative missing-owner-index behavior.
+- Embedded offline snapshot updated to628 records/79 tags.
+- Final release binary scan: Defender1.463.291.0, protection enabled, scan2F1849C5-729C-40F9-8F1B-CAB75099CED0 completed, zero new detections.
+
+SHA256: 6bd570b28c4f9c81906b01131781a284a5d0ccd1fde4d4b5262646c26719294a

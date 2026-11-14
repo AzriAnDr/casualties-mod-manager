@@ -104,6 +104,113 @@ public static class LauncherUpdate
         }
     }
 
+    // Call only after the new manager window has completed initialization.
+    // A Process.Start success in the helper is not proof of a healthy new startup.
+    public static int CleanupPreviousBackup()
+    {
+        try
+        {
+            Assembly entry = Assembly.GetEntryAssembly();
+            if (entry == null || String.IsNullOrEmpty(entry.Location)) return 0;
+            return CleanupPreviousBackups(FullPath(entry.Location));
+        }
+        catch (Exception error) { BackupCleanupLog("Очистка резервных EXE пропущена: " + error.Message); return 0; }
+    }
+    static int CleanupPreviousBackups(string livePath)
+    {
+        // Exact sibling names support the previous 0.5.1 helper, which wrote no marker.
+        livePath = FullPath(livePath);
+        RequireCleanupFile(livePath);
+        AssemblyName current = ReadManagerIdentity(livePath);
+        if (current == null) return 0;
+        string folder = Path.GetDirectoryName(livePath), leaf = Path.GetFileName(livePath);
+        int deleted = 0;
+        foreach (string candidate in Directory.GetFiles(folder, leaf + ".bak*", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                string full = FullPath(candidate);
+                if (!String.Equals(Path.GetDirectoryName(full), folder, StringComparison.OrdinalIgnoreCase) || !IsOwnBackupName(Path.GetFileName(full), leaf)) continue;
+                RequireCleanupFile(full);
+                // Deny writes while metadata is examined. This never loads an assembly for execution.
+                long length; DateTime written; AssemblyName previous;
+                using (var guard = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    previous = ReadManagerIdentity(full);
+                    if (previous == null || previous.Version.CompareTo(current.Version) >= 0 || !SamePublicKey(previous, current)) continue;
+                    length = guard.Length; written = File.GetLastWriteTimeUtc(full);
+                }
+                RequireCleanupFile(full);
+                var unchanged = new FileInfo(full);
+                if (unchanged.Length != length || unchanged.LastWriteTimeUtc != written) continue;
+                File.Delete(full);
+                deleted++;
+                BackupCleanupLog("Новый менеджер инициализирован: удалён резервный EXE " + previous.Version + ": " + full);
+            }
+            catch (Exception error) { BackupCleanupLog("Резервный EXE сохранён: " + candidate + ". " + error.Message); }
+        }
+        return deleted;
+    }
+    static bool IsOwnBackupName(string candidate, string liveLeaf)
+    {
+        string prefix = liveLeaf + ".bak";
+        if (String.Equals(candidate, prefix, StringComparison.OrdinalIgnoreCase)) return true;
+        if (!candidate.StartsWith(prefix + ".", StringComparison.OrdinalIgnoreCase)) return false;
+        string suffix = candidate.Substring(prefix.Length + 1);
+        if (suffix.Length != 47 || suffix[14] != '-') return false;
+        DateTime stamp; Guid id;
+        return DateTime.TryParseExact(suffix.Substring(0, 14), "yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out stamp) && Guid.TryParseExact(suffix.Substring(15), "N", out id);
+    }
+    static AssemblyName ReadManagerIdentity(string file)
+    {
+        ValidatePe(file);
+        AssemblyName identity = AssemblyName.GetAssemblyName(file);
+        if (identity.Version == null) return null;
+        const string family = "Casualties-ModManager";
+        if (!String.Equals(identity.Name, family, StringComparison.Ordinal))
+        {
+            if (identity.Name == null || !identity.Name.StartsWith(family + "-", StringComparison.Ordinal)) return null;
+            string suffix = identity.Name.Substring(family.Length + 1);
+            if (suffix.EndsWith("-test", StringComparison.Ordinal)) suffix = suffix.Substring(0, suffix.Length - 5);
+            System.Version named;
+            if (!System.Version.TryParse(suffix, out named) || NormalizeVersion(named) != NormalizeVersion(identity.Version)) return null;
+        }
+        System.Version resourceVersion;
+        if (!System.Version.TryParse(FileVersionInfo.GetVersionInfo(file).FileVersion, out resourceVersion) || NormalizeVersion(resourceVersion) != NormalizeVersion(identity.Version)) return null;
+        return identity;
+    }
+    static System.Version NormalizeVersion(System.Version value) { return new System.Version(value.Major, value.Minor, Math.Max(0, value.Build), Math.Max(0, value.Revision)); }
+    static bool SamePublicKey(AssemblyName first, AssemblyName second)
+    {
+        byte[] a = first.GetPublicKeyToken() ?? new byte[0], b = second.GetPublicKeyToken() ?? new byte[0];
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
+    }
+    static void RequireCleanupFile(string file)
+    {
+        var drive = new DriveInfo(Path.GetPathRoot(file));
+        if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Removable) throw new IOException("Очистка разрешена только на локальном или съёмном диске.");
+        if (!File.Exists(file)) throw new IOException("Файл отсутствует.");
+        EnsureSafeDirectory(Path.GetDirectoryName(file));
+        FileAttributes attributes = File.GetAttributes(file);
+        if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0) throw new IOException("Ссылки, junction и папки не очищаются.");
+        long bytes = new FileInfo(file).Length;
+        if (bytes < 256 || bytes > MaximumExeBytes) throw new IOException("Неожиданный размер резервного EXE.");
+    }
+    static void BackupCleanupLog(string text)
+    {
+        try
+        {
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CasualtiesModManager");
+            EnsureSafeDirectory(folder);
+            string log = Path.Combine(folder, "update.log");
+            if (File.Exists(log) && (File.GetAttributes(log) & FileAttributes.ReparsePoint) != 0) return;
+            File.AppendAllText(log, DateTime.Now.ToString("s") + " " + text + Environment.NewLine, Encoding.UTF8);
+        }
+        catch { }
+    }
+
     static string Required(System.Collections.Generic.Dictionary<string, object> json, string key, bool allowEmpty = false)
     {
         object value;
@@ -171,7 +278,7 @@ public static class LauncherUpdate
             var request = (HttpWebRequest)WebRequest.Create(current);
             int remaining = 20000 - (int)deadline.ElapsedMilliseconds;
             if (remaining <= 0) throw new WebException("Проверка или загрузка обновления превысила 20 секунд.", WebExceptionStatus.Timeout);
-            request.Method = "GET"; request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.UserAgent = "CasualtiesModManager-Updater/0.5.1"; request.KeepAlive = false;
+            request.Method = "GET"; request.AllowAutoRedirect = false; request.Timeout = remaining; request.ReadWriteTimeout = remaining; request.UserAgent = "CasualtiesModManager-Updater/0.5.2"; request.KeepAlive = false;
             using (var response = (HttpWebResponse)request.GetResponse())
             {
                 int code = (int)response.StatusCode;
