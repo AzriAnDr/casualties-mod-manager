@@ -160,21 +160,16 @@ internal static class OriginalCyrillic
         }
         private Raster MakeBrush()
         {
-            var raw=Donor('I',120);var result=new Raster(24,72);
-            for(int y=0;y<72;y++)
-            {
-                int yy=Math.Min(raw.Height-1,y+24),begin=-1,best=-1,length=0;
-                for(int x=0;x<=raw.Width;x++)
-                {
-                    bool ink=x<raw.Width&&raw.Data[yy*raw.Width+x]>96;
-                    if(ink&&begin<0)begin=x;
-                    else if(!ink&&begin>=0){if(x-begin>length){best=begin;length=x-begin;}begin=-1;}
-                }
-                if(best<0)continue;int lo=best,hi=best+length,peak=1;for(int x=lo;x<hi;x++)peak=Math.Max(peak,raw.Data[yy*raw.Width+x]);
-                int shift=Mathf.Clamp(Mathf.RoundToInt(((lo+length*.5f)/raw.Width-.5f)*6),-2,2);
-                for(int x=1;x<23;x++){int dest=x+shift;if(dest<0||dest>=24)continue;result.Data[y*24+dest]=(byte)Math.Min(255,raw.Data[yy*raw.Width+lo+Math.Min(hi-lo-1,(x-1)*(hi-lo)/22)]*255/peak);}
-            }
-            return result;
+            // Keep a native stem's complete two-dimensional alpha field: uneven
+            // width, leaning contour, transparent scratches and original opacity.
+            // In Orange Book the lower-case l has a long foot; exclude that foot
+            // as a single rectangular crop, never normalize individual rows.
+            var raw=Crop(Original('l').Image);
+            int length=Math.Max(1,Mathf.RoundToInt(raw.Height*.76f));
+            var upper=new Raster(raw.Width,length);
+            Array.Copy(raw.Data,upper.Data,upper.Data.Length);
+            var stem=Crop(upper);
+            return raw.Width>stem.Width*1.6f?stem:raw;
         }
         private void Put(Raster image,float x,float y)
         {
@@ -184,18 +179,23 @@ internal static class OriginalCyrillic
         private void Put(Raster image){Put(image,left,top);}
         private void Stroke(params float[] p)
         {
-            // Brush is derived from the source's worn I stem, not a sterile vector line.
+            // Rotate the native raster piece as a whole. Width is inherited from
+            // its source metrics, not a distance-field/vector line thickness.
+            // No alpha amplification, row recentering or opaque normalization.
             for(int segment=0;segment+3<p.Length;segment+=2)
             {
                 float x1=left+p[segment]*width,y1=top+p[segment+1]*height,x2=left+p[segment+2]*width,y2=top+p[segment+3]*height;
-                float pen=stroke*Math.Max(.5f,Math.Min(1.2f,height/cap));
-                float dx=x2-x1,dy=y2-y1,length=Math.Max(1,(float)Math.Sqrt(dx*dx+dy*dy));int minX=Math.Max(0,(int)Math.Floor(Math.Min(x1,x2)-stroke)),maxX=Math.Min(canvas.Width-1,(int)Math.Ceiling(Math.Max(x1,x2)+stroke)),minY=Math.Max(0,(int)Math.Floor(Math.Min(y1,y2)-stroke)),maxY=Math.Min(canvas.Height-1,(int)Math.Ceiling(Math.Max(y1,y2)+stroke));
+                float dx=x2-x1,dy=y2-y1,length=Math.Max(1,(float)Math.Sqrt(dx*dx+dy*dy));
+                float scale=Math.Max(.45f,height/cap),pen=brush.Width*scale;
+                int minX=Math.Max(0,(int)Math.Floor(Math.Min(x1,x2)-pen)),maxX=Math.Min(canvas.Width-1,(int)Math.Ceiling(Math.Max(x1,x2)+pen)),minY=Math.Max(0,(int)Math.Floor(Math.Min(y1,y2)-pen)),maxY=Math.Min(canvas.Height-1,(int)Math.Ceiling(Math.Max(y1,y2)+pen));
                 for(int y=minY;y<=maxY;y++)for(int x=minX;x<=maxX;x++)
                 {
-                    float t=((x-x1)*dx+(y-y1)*dy)/(length*length),cross=((x-x1)*(-dy)+(y-y1)*dx)/length;
-                    if(t<-.02f||t>1.02f||Math.Abs(cross)>pen*.5f)continue;
-                    int bx=Mathf.Clamp(Mathf.RoundToInt((cross/pen+.5f)*(brush.Width-1)),0,brush.Width-1),by=Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(t)*(brush.Height-1)),0,brush.Height-1),index=y*canvas.Width+x;
-                    canvas.Data[index]=Math.Max(canvas.Data[index],brush.Data[by*brush.Width+bx]);
+                    float along=((x-x1)*dx+(y-y1)*dy)/length,cross=((x-x1)*dy-(y-y1)*dx)/length;
+                    if(along<0||along>length)continue;
+                    int bx=Mathf.RoundToInt(cross/scale+(brush.Width-1)*.5f);
+                    int by=Mathf.RoundToInt(along/length*(brush.Height-1));
+                    if(bx<0||bx>=brush.Width||by<0||by>=brush.Height)continue;
+                    int index=y*canvas.Width+x;canvas.Data[index]=Math.Max(canvas.Data[index],brush.Data[by*brush.Width+bx]);
                 }
             }
         }
@@ -255,10 +255,39 @@ internal static class OriginalCyrillic
         }
         private void DrawSh(bool tail)
         {
+            if(font.name.IndexOf("MilkyOnlyYou",StringComparison.OrdinalIgnoreCase)>=0){DrawMilkySh(tail);return;}
             // Three distinct slightly leaning stems; never a Latin W substitution.
             Stroke(.02f,.01f,0,1);Stroke(.51f,.03f,.49f,1);Stroke(1,0,.98f,1);
             Stroke(0,1,.49f,.99f,.99f,1);
             if(tail)Stroke(.98f,.97f,1.04f,1.22f);
+        }
+        private void DrawMilkySh(bool tail)
+        {
+            // Milky l curves away from the geometric endpoint. Locate the real
+            // ink of each separately drawn stem and bridge it with its own T bar.
+            var combined=canvas;var anchorsX=new float[3];var anchorsY=new float[3];
+            for(int i=0;i<3;i++)
+            {
+                canvas=new Raster(combined.Width,combined.Height);
+                float at=i*.5f;Stroke(at+.02f,.01f,at,1);
+                double best=Double.MaxValue;int ax=-1,ay=-1;
+                for(int y=Math.Max(0,(int)(top+height*.8f));y<canvas.Height;y++)for(int x=0;x<canvas.Width;x++)
+                {
+                    if(canvas.Data[y*canvas.Width+x]<160)continue;
+                    double dx=x-(left+at*width),dy=y-(top+height*.95f),score=dx*dx*.1+dy*dy;
+                    if(score<best){best=score;ax=x;ay=y;}
+                }
+                if(ax<0)throw new InvalidOperationException("No native Milky stem anchor");
+                anchorsX[i]=ax;anchorsY[i]=ay;
+                for(int j=0;j<combined.Data.Length;j++)combined.Data[j]=Math.Max(combined.Data[j],canvas.Data[j]);
+            }
+            canvas=combined;
+            var native=Crop(Original('T').Image);int barHeight=Math.Max(1,Mathf.RoundToInt(native.Height*.2f));
+            var piece=new Raster(native.Width,barHeight);Array.Copy(native.Data,piece.Data,piece.Data.Length);piece=Crop(piece);
+            float yjoin=(anchorsY[0]+anchorsY[1]+anchorsY[2])/3f,overlap=brush.Width*height/cap*.25f;
+            var bar=piece.Resize(Math.Max(1,Mathf.RoundToInt(anchorsX[2]-anchorsX[0]+overlap*2)),Math.Max(1,Mathf.RoundToInt(piece.Height*height/cap)));
+            Put(bar,anchorsX[0]-overlap,yjoin-bar.Height*.5f);
+            if(tail)Stroke((anchorsX[2]-left)/width,(yjoin-top)/height,(anchorsX[2]-left)/width+.05f,1.22f);
         }
         private void Punctuation(char c)
         {

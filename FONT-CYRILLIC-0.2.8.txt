@@ -1,0 +1,30 @@
+Russian font style pass 0.2.8 - source frozen after parent visual review
+
+Changed production source: outputs/CasualtiesModManager/src/OriginalCyrillic.cs only.
+RussianFontFix.cs unchanged in this pass.
+
+Replaced the normalized vector-pen mask with original lower-case l raster pieces from each of the three installed source faces. The complete 2D alpha field survives: unequal width, original lean, torn edges, transparent scratches and opacity. Orange Book's long l foot is excluded by a single rectangular crop. No per-row recentering, alpha amplification or opaque-width normalization remains. The pieces rotate into strokes without replacing their native contour.
+
+MilkyOnlyYou only: Ш/Щ (both cases) locate real opaque lower ink independently on all three native stems. Their common bottom joins use a rectangular crop of the original T crossbar; the Щ tail begins at the anchored join. Other glyph recipes retain native-stroke rendering. Ц retains its previous real-ink anchor. Original Latin glyphs/metrics and source assets remain unchanged. Custom Cyrillic is an approximation designed from original pieces, not the font author's original Cyrillic.
+
+Exact production Designer classes are extracted verbatim by prepare-designer-tests.py and compiled into an isolated .NET Framework harness with inert Unity metadata stubs. DesignerTests.exe never starts Unity, the game or manager.
+
+Passed checks, all three faces:
+- All 66 Cyrillic letters nonblank; finite bearings and positive advances.
+- Missing ASCII/additional punctuation recipes remain nonblank.
+- Native brush pixel-for-pixel equals a rectangular region of the original l alpha; no pixel opacity modification.
+- Distinct row ink widths: DuneOrange_B 15, ExperimentIEatCrayons 12, MilkyOnlyYou 17, confirming preserved nonuniform contours.
+- Glyph shelf packing stays below 2048x2048; used max Y: Dune 1383, Experiment 1566, Milky 1400 (latest values also in RUNTIME-DESIGN-TESTS.json).
+- Milky ШЩшщ: at least90% of thresholded ink belongs to one 8-connected component, confirming the three major stems share a bottom join.
+
+Previews from the ACTUAL C# runtime Designer, with untouched original Latin alongside all66 Cyrillic:
+DuneOrange_B/review-style-v7.png
+ExperimentIEatCrayons/review-style-v7.png
+MilkyOnlyYou/review-style-v8.png
+Parent visually reviewed these and requested source freeze.
+
+Reproduction:
+python work/original-fonts054/prepare-designer-tests.py
+Compile DesignerSubject.cs + DesignerStubs.cs + DesignerTests.cs with .NET Framework csc, System.Drawing and System.Web.Extensions; run DesignerTests.exe work/original-fonts054.
+
+Limits: no live game, GPU readback, scene/material masking, network or gameplay validation. No game/manager launch or game install mutation. Original private asset extracts/previews are research-only, not bundled or redistributed. Manager0.5.4 remains unchanged; parent builds/publishes Russian module only.

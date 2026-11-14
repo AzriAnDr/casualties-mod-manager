@@ -1,0 +1,11 @@
+Russian module0.2.8, game1.0.2; independent package update.
+
+Build_modules.py builds only CuRussian.dll and its7file plugin ZIP. Plugin SDK build passed0warnings0errors. Assembly version0.2.8.0. Package contains exact built DLL, existing locale version1.0.2 and credits/licenses; no game font/atlas files.
+Russian ZIP SHA256: f8bfd1be737d074ee321624e3d6161cc1b94b99dfcb66b2cfe52866adbf303e3
+Launcher0.5.4 SHA256 remains d2f3b01c7edbf27871797e118831c131a83dcfa2c6b12f9268e4c2366c301563; EXE not rebuilt or replaced for this module update.
+
+Fonts:3actual C#Designer tests pass66RU/nonblank/positive metrics/2048atlas bounds. Source rectangular raster alpha preserved without per-row opacity/width normalization; native stems have15/12/17 distinct widths across rows. Milky ШЩшщ connected opaque component>=90percent; source T crossbar used for the bottom join. Coordinator viewed v7all3 and refined Milkyv8. Details FONT-CYRILLIC-0.2.8.txt.
+
+Defender1.463.299.0, antivirus+realtime enabled: ZIP custom scan EB231BFD-9A9F-4C5C-9C5A-F5FB27597A19 completed(event1001), no new threat detections. No security exclusions/disablement.
+No game/manager launch, GPU font render, scene/animation/mask or multiplayer test. No installed plugin/config/save modified. New Cyrillic is an approximation derived at runtime from local native glyphs; offline previews are not gameplay proof.
+Live verification: published0.5.4 ModuleCatalog.Check returned Russian0.2.8; all3channel packages downloaded and SHA256-verified by that unmodified launcher assembly, no installs.

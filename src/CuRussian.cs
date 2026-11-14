@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using BepInEx;
@@ -6,7 +6,7 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
-[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.7")]
+[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.8")]
 [BepInDependency("CasualtiesMP", BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class CuRussian : BaseUnityPlugin
 {
