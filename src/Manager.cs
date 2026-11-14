@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.2.0")]
-[assembly: AssemblyFileVersion("0.5.2.0")]
+[assembly: AssemblyVersion("0.5.3.0")]
+[assembly: AssemblyFileVersion("0.5.3.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.2";
+    const string LauncherVersion = "0.5.3";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -374,7 +374,7 @@ public sealed partial class Manager : Form
         string version=installedVersion;if(String.IsNullOrWhiteSpace(version)||version=="—")version=BundledVersion(module.Id);
         System.Version parsed;if(!System.Version.TryParse(version,out parsed))return "Не указана";
         string numeric=parsed.Major+"."+parsed.Minor+"."+Math.Max(0,parsed.Build);
-        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
+        if(module.Id=="russian"){if(numeric=="0.2.4"||numeric=="0.2.5"||numeric=="0.2.6")return "1.0.2";if(new[]{"0.2.0","0.2.1","0.2.2","0.2.3"}.Contains(numeric))return "1.0.1";}
         if(module.Id=="wiki"){if(numeric=="0.2.1")return "1.0.2 · WIP";if(numeric=="0.2.0")return "1.0.1 · WIP";}
         return "Не указана";
     }

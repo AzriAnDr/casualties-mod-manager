@@ -1,0 +1,24 @@
+Casualties Mod Manager0.5.3 / CuRussian0.2.6
+2026-11-14
+
+Confirmed runtime failure in installed0.2.5: null Bitmap shader in TMP font factory. Existing game log showed hooks enabled and original font retained. Game was running throughout investigation and was not launched/closed/injected or its installed files modified.
+Also confirmed from actual TMP implementation: TryAddCharacters(string,outmissing) returns the entire input as missing when zero new glyphs need adding; earlier diagnostics falsely reported present ASCII/Cyrillic letters.
+
+Changes:
+- FixedSDFAA64 /2048 single-atlas pipeline; MobileSDF shader read through actual nonpublic getter (read only); targetSDF material cloned, never sourceBitmap shader.
+- Validate163actualcorelookup entries, glyphatlasIndex0, rectbounds, texture dimensions and material_MainTex match before assignment.
+- Glyph additions and diagnostics driven by fresh HasCharacters lookup rather than buggy TryAddCharacters output.
+- Known Talker pixel roles including punctuation-only runs recognized.
+- Network player-count prefix shortened to Игроков: ; count/limit generation unchanged.
+- Manager version0.5.3 and Russian0.2.6, compatibility mapping1.0.2 updated; previous0.5.2 changes preserved.
+
+Validation:
+- Full manager/plugins build0errors0warnings against actual game1.0.2.
+-5 extracted-method fixture cases passed: already-present chars, native misleading return, actual missing glyph request, lookup recheck, unsupported symbol and shared-font protection (grouped tests).
+- Static shader/API path and actual TMP internal getter verified.
+- Final embedded ZIP JSON short-label assertion passed; built-in versions Russian0.2.6/wiki0.2.1/BepInEx5.4.23.5.
+- Defender1.463.291.0, realtime+antivirus enabled, custom scan864075EA-E312-45BA-B709-8C1551CA97DC completed without new detections.
+
+Limits: actual GPU sign/speech rendering and two-client multiplayer result remain unverified. No claim that a live reproduction has passed. Previous Microsoft0.5.0verdict does not cover this changed binary.
+
+SHA256: e0e1087f28058d1329dabcdef611ce44d78b5c6e7e6d151158c71c51fb4de2e3

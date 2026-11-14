@@ -404,7 +404,7 @@ public sealed partial class Manager
             bool allowed=archive?(host=="github.com"||redirect>0&&(host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com")):host=="api.github.com";
             if(!allowed||current.Scheme!="https"||!current.IsDefaultPort||current.UserInfo.Length!=0||current.Fragment.Length!=0)throw new InvalidDataException("Неожиданный адрес сервера GitHub.");
             int remaining=deadlineMs-(int)timer.ElapsedMilliseconds;if(remaining<=0)throw new WebException("Истекло время загрузки GitHub.",WebExceptionStatus.Timeout);
-            var request=(HttpWebRequest)WebRequest.Create(current);request.UserAgent="CasualtiesModManager/0.5.2";request.AllowAutoRedirect=false;request.Timeout=request.ReadWriteTimeout=remaining;request.KeepAlive=false;
+            var request=(HttpWebRequest)WebRequest.Create(current);request.UserAgent="CasualtiesModManager/0.5.3";request.AllowAutoRedirect=false;request.Timeout=request.ReadWriteTimeout=remaining;request.KeepAlive=false;
             using(var response=(HttpWebResponse)request.GetResponse())
             {
                 int status=(int)response.StatusCode;if(status>=300&&status<400){string location=response.Headers["Location"];if(redirect==5||String.IsNullOrWhiteSpace(location))throw new InvalidDataException("Некорректное перенаправление GitHub.");current=new Uri(current,location);continue;}

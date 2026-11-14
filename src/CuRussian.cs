@@ -6,7 +6,7 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
-[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.5")]
+[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.6")]
 [BepInDependency("CasualtiesMP", BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class CuRussian : BaseUnityPlugin
 {

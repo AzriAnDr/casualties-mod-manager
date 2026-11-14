@@ -1,0 +1,9 @@
+Runtime evidence for Russian font revision0.2.6
+Installed plugin observed:0.2.5; UnifiedRussianFont=True.
+Observed font hook startup enabled.
+Observed failure: Russian pixel font preparation skipped; original text retained: Value cannot be null. Parameter name: shader.
+Observed successful separate source conversion: ConsoleFont -> RetroGamingFIXED, sampling150.
+Observed false missing warnings for core ASCII/Cyrillic characters after successful preload.
+Actual installed TMP source: CreateFontAsset selects MobileBitmap for raster mode and invokes new Material(shader) without a null check. TryAddCharacters(string,outmissing) reports the whole input as missing when there are zero new glyphs to add, including when all input glyphs already exist.
+No player names, SteamIDs, chat text or save paths retained in this excerpt.
+Game was running; no game files were changed or process injected/closed/launched.
