@@ -24,6 +24,7 @@ internal static class TogetherUiFix
         internal int FontSize;
         internal bool RichText;
         internal float Width, Height;
+        internal int Left, Right, Top, Bottom;
     }
     private static readonly Dictionary<string, Entry> cache = new Dictionary<string, Entry>(StringComparer.Ordinal);
 
@@ -108,16 +109,23 @@ internal static class TogetherUiFix
     {
         if (actionDepth == 0 || String.IsNullOrEmpty(__1) || __0.width <= 0 || __0.height <= 0) return;
         // A failed measurement must not affect button interaction, disabled state or another UI mod.
-        try { __3 = Fit(__3 ?? GUI.skin.button, __1, __0.width, __0.height); } catch { }
+        try { __3 = FitButtonStyle(__3 ?? GUI.skin.button, __1, __0.width, __0.height); } catch { }
     }
-    private static GUIStyle Fit(GUIStyle source, string text, float width, float height)
+    internal static GUIStyle FitButtonStyle(GUIStyle source, string text, float width, float height)
     {
         Entry entry;
-        if (cache.TryGetValue(text, out entry) && System.Object.ReferenceEquals(entry.Source, source) && System.Object.ReferenceEquals(entry.Font, source.font) && entry.FontSize == source.fontSize && entry.RichText == source.richText && entry.Width == width && entry.Height == height) return entry.Fitted;
+        var padding = source.padding;
+        if (cache.TryGetValue(text, out entry) && System.Object.ReferenceEquals(entry.Source, source) && System.Object.ReferenceEquals(entry.Font, source.font) && entry.FontSize == source.fontSize && entry.RichText == source.richText && entry.Width == width && entry.Height == height && entry.Left == padding.left && entry.Right == padding.right && entry.Top == padding.top && entry.Bottom == padding.bottom) return entry.Fitted;
         if (cache.Count >= CacheLimit) cache.Clear();
         var style = new GUIStyle(source);
         style.wordWrap = true; style.clipping = TextClipping.Clip; style.alignment = TextAnchor.MiddleCenter;
         style.fixedWidth = 0; style.fixedHeight = 0; style.contentOffset = Vector2.zero;
+        // Together uses a scaled 9-slice texture border as text padding. At normal menu scale
+        // this can reserve most/all of a small action row even when its font is reduced.
+        // Keep the background border, but bound this private clone's text insets independently.
+        int horizontal = TextInset(width, .06f), vertical = TextInset(height, .08f);
+        style.padding = new RectOffset(Math.Min(Math.Max(0, padding.left), horizontal), Math.Min(Math.Max(0, padding.right), horizontal), Math.Min(Math.Max(0, padding.top), vertical), Math.Min(Math.Max(0, padding.bottom), vertical));
+        style.margin = new RectOffset(2, 2, 2, 2); style.overflow = new RectOffset(0, 0, 0, 0);
         int maximum = source.fontSize > 0 ? source.fontSize : source.font != null && source.font.fontSize > 0 ? source.font.fontSize : 16;
         int minimum = Math.Min(maximum, Math.Max(6, (int)Math.Round(maximum * 0.55)));
         var content = new GUIContent(text);
@@ -130,9 +138,10 @@ internal static class TogetherUiFix
             style.fontSize = size;
             return style.CalcHeight(content, safeWidth) <= safeHeight && words.All(w => style.CalcSize(w).x <= safeWidth);
         });
-        cache[text] = new Entry { Source = source, Fitted = style, Font = source.font, FontSize = source.fontSize, RichText = source.richText, Width = width, Height = height };
+        cache[text] = new Entry { Source = source, Fitted = style, Font = source.font, FontSize = source.fontSize, RichText = source.richText, Width = width, Height = height, Left = padding.left, Right = padding.right, Top = padding.top, Bottom = padding.bottom };
         return style;
     }
+    internal static int TextInset(float size, float fraction) { return Math.Max(0, (int)Math.Floor(Math.Max(0, size) * fraction)); }
     internal static int ChooseSize(int maximum, int minimum, Func<int, bool> fits)
     {
         for (int size = maximum; size >= minimum; size--) if (fits(size)) return size;

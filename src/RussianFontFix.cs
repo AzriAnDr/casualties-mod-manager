@@ -17,11 +17,14 @@ internal static class RussianFontFix
     private static readonly HashSet<TMP_Text> applying = new HashSet<TMP_Text>();
     private static readonly HashSet<TMP_FontAsset> privateFonts = new HashSet<TMP_FontAsset>();
     private static readonly HashSet<uint> reportedMissing = new HashSet<uint>();
+    private static readonly HashSet<string> reportedBindings = new HashSet<string>();
     private static readonly MethodInfo UpdateWorldMaterial = AccessTools.Method(typeof(TextMeshPro), "UpdateMaterial");
+    private static readonly MethodInfo UpdateUIMaterial = AccessTools.Method(typeof(TextMeshProUGUI), "UpdateMaterial");
+    private static readonly FieldInfo FontMaterialCache = AccessTools.Field(typeof(TMP_Text), "m_fontMaterial");
     private static ManualLogSource logger;
     private static Font retro;
     private static bool searchedResources, reportedFailure;
-    private sealed class Binding { internal TMP_FontAsset Font, OriginalFont; internal Material Material, OriginalMaterial; }
+    private sealed class Binding { internal TMP_FontAsset Font, OriginalFont; internal Material Material, OriginalMaterial, OriginalFontMaterial; }
 
     internal static void Enable(Harmony harmony, ManualLogSource log)
     {
@@ -34,6 +37,7 @@ internal static class RussianFontFix
         var release = new HarmonyMethod(typeof(RussianFontFix), "AfterDestroy");
         harmony.Patch(AccessTools.Method(typeof(TextMeshProUGUI), "OnDestroy"), postfix: release);
         harmony.Patch(AccessTools.Method(typeof(TextMeshPro), "OnDestroy"), postfix: release);
+        if (UpdateUIMaterial != null) harmony.Patch(UpdateUIMaterial, postfix: new HarmonyMethod(typeof(RussianFontFix), "AfterUIMaterial"));
         logger.LogInfo("Russian pixel font preparation enabled before TMP glyph/material layout.");
     }
     private static string BuildCore()
@@ -258,13 +262,42 @@ internal static class RussianFontFix
     {
         text.UpdateMeshPadding();
         if (text is TextMeshPro && UpdateWorldMaterial != null) UpdateWorldMaterial.Invoke(text, null);
+        var ui = text as TextMeshProUGUI;
+        if (ui)
+        {
+            if (UpdateUIMaterial != null) UpdateUIMaterial.Invoke(ui, null);
+            SyncUIAtlas(ui);
+        }
+    }
+    private static bool UsesAtlas(Material material, TMP_FontAsset font)
+    {
+        return material && font && font.atlasTexture && material.GetTexture("_MainTex") == font.atlasTexture;
+    }
+    private static Material OriginalCache(TMP_Text text, TMP_FontAsset font, Material owned)
+    {
+        var material = FontMaterialCache == null ? null : FontMaterialCache.GetValue(text) as Material;
+        return material != owned && UsesAtlas(material, font) ? material : null;
+    }
+    private static void SyncUIAtlas(TextMeshProUGUI text)
+    {
+        // CanvasRenderer has a separate texture override. TMP's indexed material
+        // update does not supply that texture; keep both bindings on the same atlas.
+        if (text && text.canvasRenderer && UsesAtlas(text.fontSharedMaterial, text.font))
+            text.canvasRenderer.SetTexture(text.font.atlasTexture);
+    }
+    private static void AfterUIMaterial(TextMeshProUGUI __instance)
+    {
+        Binding binding;
+        if (__instance && bindings.TryGetValue(__instance, out binding) && __instance.font == binding.Font)
+            SyncUIAtlas(__instance);
     }
     private static void ReleaseBinding(TMP_Text text, Binding binding, bool restore)
     {
         if (restore && binding.OriginalFont)
         {
             text.font = binding.OriginalFont;
-            text.fontSharedMaterial = binding.OriginalMaterial ? binding.OriginalMaterial : binding.OriginalFont.material;
+            text.fontSharedMaterial = UsesAtlas(binding.OriginalMaterial, binding.OriginalFont) ? binding.OriginalMaterial : binding.OriginalFont.material;
+            if (FontMaterialCache != null) FontMaterialCache.SetValue(text, binding.OriginalFontMaterial);
             ApplyComponentMaterial(text);
         }
         bindings.Remove(text);
@@ -292,21 +325,27 @@ internal static class RussianFontFix
             }
             if (!bound)
             {
-                binding = new Binding { OriginalFont = original, OriginalMaterial = originalMaterial };
+                binding = new Binding { OriginalFont = original, OriginalMaterial = originalMaterial, OriginalFontMaterial = OriginalCache(__instance, original, null) };
                 bindings[__instance] = binding;
             }
             else if (!currentlyOwned)
             {
                 binding.OriginalFont = original; binding.OriginalMaterial = originalMaterial;
+                binding.OriginalFontMaterial = OriginalCache(__instance, original, binding.Material);
             }
             TMP_FontAsset target = Choose(original);
-            if (current != target || __instance.fontSharedMaterial != binding.Material)
+            if (current != target || __instance.fontSharedMaterial != binding.Material || !UsesAtlas(binding.Material, target))
             {
                 Material display = DisplayMaterial(originalMaterial, target);
                 Material previous = binding.Material;
                 __instance.font = target; __instance.fontSharedMaterial = display;
+                // Cached per-component material instances must follow the new font too;
+                // face/outline setters would otherwise reinstall the old atlas later.
+                if (FontMaterialCache != null) FontMaterialCache.SetValue(__instance, display);
                 binding.Font = target; binding.Material = display;
                 ApplyComponentMaterial(__instance);
+                string diagnostic = __instance.GetType().Name + ":" + original.name + "->" + target.name;
+                if (reportedBindings.Add(diagnostic)) logger.LogInfo("Private font/material binding synchronized: " + diagnostic + "; UI atlas override and cached instance updated where applicable.");
                 if (previous) UnityEngine.Object.Destroy(previous);
             }
             AddTextGlyphs(binding.Font, visible);

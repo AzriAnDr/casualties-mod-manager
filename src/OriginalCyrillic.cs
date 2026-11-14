@@ -33,7 +33,7 @@ internal static class OriginalCyrillic
             if ((source.atlasRenderMode!=GlyphRenderMode.RASTER && source.atlasRenderMode!=GlyphRenderMode.RASTER_HINTED) || source.atlasTextures==null || source.atlasTextures.Length!=1 || !source.atlasTexture || !source.material || !source.material.shader) throw new InvalidOperationException("Unsupported handwritten atlas or material");
             int oldW=source.atlasTexture.width,oldH=source.atlasTexture.height;
             if(oldW<16 || oldH<16 || oldW>1024 || oldH>1024)throw new InvalidOperationException("Unexpected handwritten atlas dimensions");
-            Color32[] original=ReadPixels(source.atlasTexture);
+            Color32[] original=ReadPixels(source.atlasTexture,log);
             var designer=new Designer(source,original,oldW,oldH);
             clone=UnityEngine.Object.Instantiate(source);clone.name="CuRussian-OriginalCyrillic-"+source.name;
             var glyphs=new List<Glyph>();var byIndex=new Dictionary<uint,Glyph>();uint next=1;
@@ -105,12 +105,49 @@ internal static class OriginalCyrillic
     }
     private static void Set(object value,string field,object content){var f=AccessTools.Field(typeof(TMP_FontAsset),field);if(f==null)throw new MissingFieldException(field);f.SetValue(value,content);}
     private static string BuildRequired(){var b=new System.Text.StringBuilder();for(char c=' ';c<='~';c++)b.Append(c);return b.Append(Russian).Append("«»—–−…№\u00a0").ToString();}
-    private static Color32[] ReadPixels(Texture2D source)
+    private static Color32[] ReadPixels(Texture2D source,ManualLogSource log)
     {
-        try{return source.GetPixels32();}catch(UnityException){}
+        // GetPixels32 is a native ThrowsException binding in Unity 2022.3; an
+        // unreadable imported texture need not throw UnityException specifically.
+        // Skip that API entirely when Unity already reports the CPU copy absent.
+        if(source.isReadable)
+        {
+            try{return ValidateAtlasPixels(source.GetPixels32(),source.width,source.height);}
+            catch(UnityException){}
+            catch(ArgumentException){}
+            catch(InvalidOperationException){}
+        }
         RenderTexture previous=RenderTexture.active,temp=null;Texture2D readable=null;
-        try{temp=RenderTexture.GetTemporary(source.width,source.height,0,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear);Graphics.Blit(source,temp);RenderTexture.active=temp;readable=new Texture2D(source.width,source.height,TextureFormat.RGBA32,false,true);readable.ReadPixels(new Rect(0,0,source.width,source.height),0,0);readable.Apply();return readable.GetPixels32();}
-        finally{RenderTexture.active=previous;if(temp)RenderTexture.ReleaseTemporary(temp);if(readable)UnityEngine.Object.Destroy(readable);}
+        bool previousSrgb=GL.sRGBWrite;
+        try
+        {
+            // The inspected original atlases are Alpha8. Standard Blit samples
+            // their alpha into ARGB32 alpha; never substitute RGB/red for alpha.
+            // A linear target avoids changing RGB; alpha itself stays linear.
+            temp=RenderTexture.GetTemporary(source.width,source.height,0,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear);
+            temp.filterMode=FilterMode.Point;
+            GL.sRGBWrite=false;Graphics.Blit(source,temp);RenderTexture.active=temp;
+            readable=new Texture2D(source.width,source.height,TextureFormat.RGBA32,false,true);
+            readable.ReadPixels(new Rect(0,0,source.width,source.height),0,0,false);readable.Apply(false,false);
+            var result=ValidateAtlasPixels(readable.GetPixels32(),source.width,source.height);
+            if(log!=null)log.LogInfo("Original font atlas GPU readback completed: "+source.name+"; format="+source.format+"; source readable="+source.isReadable+"; alpha verified.");
+            return result;
+        }
+        finally
+        {
+            RenderTexture.active=previous;GL.sRGBWrite=previousSrgb;
+            if(temp)RenderTexture.ReleaseTemporary(temp);if(readable)UnityEngine.Object.Destroy(readable);
+        }
+    }
+    private static Color32[] ValidateAtlasPixels(Color32[] pixels,int width,int height)
+    {
+        if(pixels==null||pixels.Length!=checked(width*height))throw new InvalidOperationException("Original atlas pixel count mismatch");
+        bool background=false,ink=false;
+        foreach(var pixel in pixels){if(pixel.a==0)background=true;else ink=true;}
+        // These packed font atlases have transparent unused space. An all-opaque
+        // readback would turn every copied glyph rectangle into a solid block.
+        if(!background||!ink)throw new InvalidOperationException("Original atlas alpha lost: expected transparent space and visible glyph ink");
+        return pixels;
     }
     private sealed class Raster
     {

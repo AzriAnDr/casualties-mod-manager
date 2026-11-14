@@ -1,18 +1,23 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 
-// Only Together's tooltip renderer: measure the wrapped lines before it allocates
-// its label/background rectangles. Ordinary game labels and world speech are untouched.
+// Together-only tooltip measurements and the three named lobby action-row controls.
+// Ordinary game labels, world speech and original host/start/ready branches are untouched.
 internal static class TogetherTextWrap
 {
     static FieldInfo pending, title, description, tooltipScale, uiScale;
     static MethodInfo originalCursor;
     static bool enabled;
+    static bool lobbyEnabled;
+    static FieldInfo lobbyScale;
+    [ThreadStatic] static LobbyState lobby;
+    sealed class LobbyState { internal LobbyState Previous; internal float Width, Height; }
     [ThreadStatic] static State current;
     sealed class State
     {
@@ -27,6 +32,7 @@ internal static class TogetherTextWrap
     }
     internal static void Enable(Harmony harmony, ManualLogSource log)
     {
+        EnableLobby(harmony, log);
         if (enabled) return;
         var type = AccessTools.TypeByName("Together.UIBullshit");
         if (type == null) return;
@@ -49,6 +55,62 @@ internal static class TogetherTextWrap
             harmony.Unpatch(method, HarmonyPatchType.All, harmony.Id);
             log.LogWarning("Together tooltip wrapping unavailable: " + e.Message);
         }
+    }
+    static void EnableLobby(Harmony harmony, ManualLogSource log)
+    {
+        if (lobbyEnabled) return;
+        var type = AccessTools.TypeByName("Together.UIMainMenu");
+        var method = type == null ? null : type.GetMethod("_GUI__DirectConnect", BindingFlags.NonPublic | BindingFlags.Static, null, new[] { typeof(Rect) }, null);
+        if (method == null || method.ReturnType != typeof(void)) return;
+        var uiType = AccessTools.TypeByName("Together.UIBullshit");
+        lobbyScale = uiType == null ? null : AccessTools.Field(uiType, "uiScale");
+        try
+        {
+            harmony.Patch(method, prefix: Hook("BeforeLobby"), transpiler: Hook("LobbyButtons"), finalizer: Hook("AfterLobby"));
+            lobbyEnabled = true; log.LogInfo("Together lobby action row: full captions wrap inside existing permitted controls; no start/ready permissions changed.");
+        }
+        catch (Exception e) { harmony.Unpatch(method, HarmonyPatchType.All, harmony.Id); log.LogWarning("Together lobby action row fitting unavailable: " + e.GetType().Name + ": " + e.Message); }
+    }
+    static void BeforeLobby(Rect __0, out LobbyState __state)
+    {
+        float scale = 1;
+        try { if (lobbyScale != null && lobbyScale.IsStatic && lobbyScale.FieldType == typeof(float)) scale = (float)lobbyScale.GetValue(null); } catch { }
+        if (Single.IsNaN(scale) || Single.IsInfinity(scale) || scale <= 0) scale = 1;
+        __state = new LobbyState { Previous = lobby, Width = __0.width, Height = 50 * scale }; lobby = __state;
+    }
+    static Exception AfterLobby(Exception __exception, LobbyState __state) { if (__state != null) lobby = __state.Previous; return __exception; }
+    internal static float LobbySlot(float panelWidth) { return Math.Max(1, (panelWidth - 24) / 3); }
+    static bool LobbyButton(string text, GUILayoutOption[] options)
+    {
+        if (lobby == null) return GUILayout.Button(text, options);
+        GUIStyle style; float width = LobbySlot(lobby.Width), height = Math.Max(1, lobby.Height);
+        try { style = TogetherUiFix.FitButtonStyle(GUI.skin.button, text, width, height); }
+        catch { return GUILayout.Button(text, options); }
+        var layout = (options ?? new GUILayoutOption[0]).Concat(new[] { GUILayout.Width(width), GUILayout.Height(height) }).ToArray();
+        // Exactly one original GUILayout control, original bool result and disabled state.
+        // Only calls already reached by Together's host/lobby/run-page branches are replaced.
+        return GUILayout.Button(text, style, layout);
+    }
+    static IEnumerable<CodeInstruction> LobbyButtons(IEnumerable<CodeInstruction> source)
+    {
+        var code = source.Select(i => new CodeInstruction(i)).ToList();
+        var keys = new HashSet<string>(new[] { "mmct_serveroptions", "mmct_copylobbycode", "mmct_gotorunsettings" }, StringComparer.Ordinal);
+        var matches = new Dictionary<string, int>();
+        for (int i = 0; i < code.Count; i++)
+        {
+            if (code[i].opcode != OpCodes.Ldstr || !(code[i].operand is string) || !keys.Contains((string)code[i].operand)) continue;
+            string key = (string)code[i].operand;
+            for (int j = i + 1; j < Math.Min(code.Count, i + 14); j++)
+            {
+                var method = code[j].operand as MethodInfo;
+                if (method != null && method.DeclaringType == typeof(GUILayout) && method.Name == "Button" && method.ReturnType == typeof(bool) && method.GetParameters().Select(p => p.ParameterType).SequenceEqual(new[] { typeof(string), typeof(GUILayoutOption[]) }))
+                { if (matches.ContainsKey(key)) throw new InvalidOperationException("Duplicate Together lobby caption call."); matches.Add(key, j); break; }
+            }
+        }
+        if (matches.Count != 3) throw new InvalidOperationException("Unsupported Together lobby action row.");
+        MethodInfo helper = typeof(TogetherTextWrap).GetMethod("LobbyButton", BindingFlags.Static | BindingFlags.NonPublic);
+        foreach (int index in matches.Values) { code[index].opcode = OpCodes.Call; code[index].operand = helper; }
+        return code;
     }
     static HarmonyMethod Hook(string name) { return new HarmonyMethod(typeof(TogetherTextWrap), name); }
     static void Before(out State __state)
