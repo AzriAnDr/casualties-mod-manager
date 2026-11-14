@@ -6,7 +6,7 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
-[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.9")]
+[BepInPlugin("local.casualties.russian", "Русский перевод игры и Together", "0.2.10")]
 [BepInDependency("CasualtiesMP", BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class CuRussian : BaseUnityPlugin
 {
@@ -39,6 +39,7 @@ public sealed class CuRussian : BaseUnityPlugin
             var tooltip = tooltipType == null ? null : AccessTools.Method(tooltipType, "_GUI_SetTooltip");
             if (tooltip != null) harmony.Patch(tooltip, prefix: new HarmonyMethod(typeof(CuRussian), "TranslateRuleTooltip"));
             try { TogetherUiFix.Enable(harmony, Logger); } catch (Exception uiError) { Logger.LogWarning("Together button layout fix unavailable: " + uiError.Message); }
+            try { TogetherTextWrap.Enable(harmony, Logger); } catch (Exception textError) { Logger.LogWarning("Together tooltip wrapping unavailable: " + textError.Message); }
             if (Config.Bind("Display", "UnifiedRussianFont", true, "Использовать один шрифт для кириллицы и пунктуации, чтобы знаки не смещались. Требуется перезапуск.").Value)
                 try { RussianFontFix.Enable(harmony, Logger); } catch (Exception fontError) { Logger.LogWarning("Font compatibility hooks unavailable: " + fontError.Message); }
             if (Config.Bind("Together", "LocalizeGeneratedSpeech", true, "Показывать игровые реплики Together на языке получателя; ручной чат не переводится.").Value)

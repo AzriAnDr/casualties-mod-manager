@@ -1,0 +1,12 @@
+Russian0.2.10 / game1.0.2 — UI wrapping and full captions.
+
+Build_modules.py integrated plugin build0warnings0errors. ZIP7controlled files, exact compiled CuRussian.dll0.2.10.0, existing locale1.0.2, no game/font binaries. ZIP SHA2564df9b29040c02825a3c6ff90c41659b9c5b49abcbce61e18b482f229ba28449d.
+Launcher0.5.4 bytes remain d2f3b01c7edbf27871797e118831c131a83dcfa2c6b12f9268e4c2366c301563, no launcher build.
+
+TogetherUiFix: full captions restored, no hard linebreaks. Specific shared grid-field stores drive130x56 scaled expansion with conservative viewport cap. Header, six button positions and hit rectangles share same dimensions.32isolated assertions/checks PASS, including625 screen/scale/edge combinations, no adjacent overlaps, viewport containment, shared style immutability, full captions/JSON keys/placeholders, scoped fit/cache/exception cleanup and whole-layout fallback if IL changes. Actual Unity/Harmony-reference compile passed.
+TogetherTextWrap: actual installed Together tooltip method inspected statically; exact2CalcSize calls,1cursor call,1literalfalse title wordWrap setter,1scaled fontSize setter verified. Only that renderer's IL calls are rewritten. Titles and descriptions use CalcHeight at bounded width. Origin clamped for complete measured popup; wider width and final font fallback if vertical space is scarce. Original font/wrap/richText/GUIcolor restored by finalizer on success or error.
+Actual HarmonyX detours against a modeled tooltip renderer plus deterministic GUIStyle measurement doubles:7checks PASS, including16 viewport/font/cursor combinations, multiline/viewport bounds, short text one-line, shared state restored, drawing exception and failed measurement fallback. These tests do not prove Unity native glyph metrics or GPU rendering.
+Fonts and network code unchanged from0.2.9; no repeat gameplay/Steam claims. Separate0.2.9 evidence remains in QA-RU-0.2.9.txt.
+
+Defender1.463.299.0, protection enabled: custom ZIP scan7A72541F-3EE0-4C39-906A-5B1159AB9E44 completed(event1001), no new detections. No exclusions/disablement.
+No game/manager launch, installed plugin/config/save mutation, live IMGUI, GPU or multiplayer session. Full runtime visual check remains for the user.
