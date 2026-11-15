@@ -258,8 +258,8 @@ public sealed partial class Manager
             ids.Add(record.Id);foreach(var file in record.Files)represented.Add(InventoryPath(file.Path));
             var entry=communityEntries.FirstOrDefault(e=>e.Id==record.Id);ModCatalog.InstalledInfo info=null;if(entry!=null)communityDetected.TryGetValue(entry.Id,out info);
             var selection=new CommunitySelection{Record=record,Entry=entry,Info=info};
-            string state=present<record.Files.Count?"Установка неполная · "+present+" / "+record.Files.Count+" файлов":record.Disabled?"Отключён":"Из каталога · под управлением";
-            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+(record.VersionSource=="plugin-metadata"?" (плагин)":" (пакет)"),entry==null?"Нужен каталог":UpdateText(entry),InstalledGameVersion(entry,info,record.VersionSource=="plugin-metadata"?null:record.Version)}){Tag=selection});
+            string state=present<record.Files.Count?"Установка неполная · "+present+" / "+record.Files.Count+" файлов":record.Disabled?"Отключён":record.Id.StartsWith("local-",StringComparison.Ordinal)?"Локальный мод · под управлением":"Из каталога · под управлением";
+            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+(record.VersionSource=="plugin-metadata"?" (плагин)":" (пакет)"),entry==null?(record.Id.StartsWith("local-",StringComparison.Ordinal)?"Из нового ZIP":"Нужен каталог"):UpdateText(entry),InstalledGameVersion(entry,info,record.VersionSource=="plugin-metadata"?null:record.Version)}){Tag=selection});
         }
         foreach(var e in communityEntries)
         {
@@ -354,9 +354,34 @@ public sealed partial class Manager
         var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var folder=new TableLayoutPanel{Dock=DockStyle.Fill,AutoSize=true,ColumnCount=3};folder.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));folder.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));folder.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));inboxFolder=DarkText(false);inboxFolder.Text=DownloadsFolder();inboxFolder.Margin=new Padding(0,8,10,8);var choose=MakeButton("Папка ZIP…",135,false);var refresh=MakeButton("Проверить",125,false);choose.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK){inboxFolder.Text=d.SelectedPath;Directory.CreateDirectory(SettingsDir);File.WriteAllText(Path.Combine(SettingsDir,"downloads-path.txt"),d.SelectedPath);StartInboxWatcher();}};refresh.Click+=async delegate{await ScanInbox();};folder.Controls.Add(inboxFolder,0,0);folder.Controls.Add(choose,1,0);folder.Controls.Add(refresh,2,0);layout.Controls.Add(folder,0,0);
         inboxList=DarkList("ZIP-архив","Мод","Состояние");layout.Controls.Add(inboxList,0,1);
-        var buttons=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true};var installZip=MakeButton("Установить выбранный ZIP",245,true);installZip.Click+=delegate{if(inboxList.SelectedItems.Count==0)return;var item=(ArchiveInbox.Item)inboxList.SelectedItems[0].Tag;if(item.Mod==null&&new[]{"russian","wiki","together","bepinex"}.Contains(item.Kind)){ImportKnownArchive(item);return;}if(item.Mod==null){MessageBox.Show(this,"Не удалось однозначно определить мод. Найдите его в каталоге и нажмите «Установить ZIP…».","Выберите мод");return;}InstallCommunityZip(item.Mod,item.Path,item.Mod.ArchiveSha256,item.Mod.Version);};var open=MakeButton("Открыть папку",165,false);open.Click+=delegate{if(Directory.Exists(inboxFolder.Text))Process.Start(inboxFolder.Text);};inboxShowUnknown=new CheckBox{Text="Показывать все ZIP",AutoSize=true,ForeColor=Muted,Margin=new Padding(18,12,0,0)};inboxShowUnknown.CheckedChanged+=async delegate{await ScanInbox();};buttons.Controls.AddRange(new Control[]{installZip,open,inboxShowUnknown});layout.Controls.Add(buttons,0,2);
-        inboxStatus=new Label{AutoSize=true,ForeColor=Muted,Text="Здесь появляются завершённые ZIP-загрузки. Установка только после подтверждения. Каталог должен быть загружен."};layout.Controls.Add(inboxStatus,0,3);page.Controls.Add(layout);
+        var buttons=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true};var installZip=MakeButton("Установить выбранный ZIP",245,true);installZip.Click+=delegate{InstallInboxSelection();};var open=MakeButton("Открыть папку",165,false);open.Click+=delegate{if(Directory.Exists(inboxFolder.Text))Process.Start(inboxFolder.Text);};inboxShowUnknown=new CheckBox{Text="Показывать все ZIP",AutoSize=true,ForeColor=Muted,Margin=new Padding(18,12,0,0)};inboxShowUnknown.CheckedChanged+=async delegate{await ScanInbox();};buttons.Controls.AddRange(new Control[]{installZip,open,inboxShowUnknown});layout.Controls.Add(buttons,0,2);
+        inboxStatus=new Label{AutoSize=true,ForeColor=Muted,Text="Здесь появляются завершённые ZIP-загрузки. Неизвестные BepInEx-моды можно установить локально после проверки файлов."};layout.Controls.Add(inboxStatus,0,3);page.Controls.Add(layout);
         inboxTimer=new System.Windows.Forms.Timer{Interval=3000};inboxTimer.Tick+=async delegate{inboxTimer.Stop();await ScanInbox();};
+    }
+    private void InstallInboxSelection()
+    {
+        if(busy||inboxList.SelectedItems.Count==0)return;
+        var item=inboxList.SelectedItems[0].Tag as ArchiveInbox.Item;if(item==null)return;
+        if(!item.Ready){MessageBox.Show(this,"Архив пока нельзя установить: "+item.State+". Нажмите «Проверить» после завершения загрузки.","Проверьте архив");return;}
+        if(item.Mod==null&&new[]{"russian","wiki","together","bepinex"}.Contains(item.Kind)){ImportKnownArchive(item);return;}
+        if(item.Mod!=null){InstallCommunityZip(item.Mod,item.Path,item.Mod.ArchiveSha256,item.Mod.Version,true);return;}
+        InstallLocalZip(item.Path);
+    }
+    private void InstallLocalZip(string file)
+    {
+        if(busy)return;string name=Path.GetFileName(file);
+        try {
+            busy=true;UpdateDetails();ShowCatalogDetails();string root=Validate(game.Text,true);
+            var plan=CommunityInstaller.PreviewLocal(root,file);name=plan.DisplayName;
+            string warning=String.Join("\r\n",plan.Warnings.ToArray());
+            if(!Preview(plan.Files,name+"\r\nВерсия плагина: "+(plan.PluginVersion??"не указана")+"\r\n"+plan.Summary+"\r\n\r\n"+warning,"Установить локальный мод")){SetStatus(name+": установка отменена.",false);return;}
+            if(!EnsureLoaderForCommunity(root,false))return;
+            var result=CommunityInstaller.Install(root,plan,name,plan.PluginVersion);
+            SetStatus(name+": установлен локальный мод, "+result.FileCount+" файлов. Копия сохранена.",false);
+            WriteLog(name+": установка локального ZIP "+Path.GetFileName(file)+"; backup: "+result.BackupPath);
+        }
+        catch(Exception error){ShowFailure(name+": установка локального ZIP",error);}
+        finally{busy=false;ModCatalog.ClearDetectionCache();RefreshList();ShowCatalogDetails();var refresh=ReloadCommunity(false);}
     }
     private string DownloadsFolder()
     {

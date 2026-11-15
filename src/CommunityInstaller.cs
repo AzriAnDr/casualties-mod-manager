@@ -27,7 +27,7 @@ public static class CommunityInstaller
     public sealed class Plan
     {
         public Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        public string Summary, ArchiveHash, ModuleId, PluginVersion;
+        public string Summary, ArchiveHash, ModuleId, PluginVersion, DisplayName;
         public bool CatalogArchiveUnverified;
         public List<string> Warnings = new List<string>();
         internal string Seal;
@@ -115,15 +115,23 @@ public static class CommunityInstaller
     }
     static string Seal(Plan plan)
     {
-        var text = new StringBuilder(plan.ModuleId + "\n" + plan.ArchiveHash + "\n" + plan.PluginVersion + "\n" + plan.CatalogArchiveUnverified + "\n");
+        var text = new StringBuilder(plan.ModuleId + "\n" + plan.ArchiveHash + "\n" + plan.DisplayName + "\n" + plan.PluginVersion + "\n" + plan.CatalogArchiveUnverified + "\n");
         foreach (var p in plan.Files.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)) text.Append(p.Key).Append(':').Append(Hash(p.Value)).Append('\n');
         return Hash(Encoding.UTF8.GetBytes(text.ToString()));
     }
     public static Plan Preview(string gameRoot, string moduleId, string zipPath, string expectedArchiveSha256, IEnumerable<string> expectedDllNames, bool reviewDifferentArchive = false, IEnumerable<string> expectedPluginGuids = null)
     {
+        return PreviewCore(gameRoot,moduleId,zipPath,expectedArchiveSha256,expectedDllNames,reviewDifferentArchive,expectedPluginGuids,false);
+    }
+    public static Plan PreviewLocal(string gameRoot,string zipPath)
+    {
+        return PreviewCore(gameRoot,"local-pending",zipPath,null,new string[0],false,null,true);
+    }
+    static Plan PreviewCore(string gameRoot,string moduleId,string zipPath,string expectedArchiveSha256,IEnumerable<string> expectedDllNames,bool reviewDifferentArchive,IEnumerable<string> expectedPluginGuids,bool local)
+    {
         string root = Root(gameRoot, false); Id(moduleId);
         var names = new HashSet<string>(expectedDllNames ?? new string[0], StringComparer.OrdinalIgnoreCase);
-        if (names.Count == 0 || names.Any(n => !IsDll(n) || n != Path.GetFileName(n) || n.IndexOf('/') >= 0 || n.IndexOf('\\') >= 0)) throw Fail("В каталоге не указано допустимое имя основной DLL.");
+        if ((!local && names.Count == 0) || names.Any(n => !IsDll(n) || n != Path.GetFileName(n) || n.IndexOf('/') >= 0 || n.IndexOf('\\') >= 0)) throw Fail("В каталоге не указано допустимое имя основной DLL.");
         // Hold a deny-write handle through hashing and parsing so the verified archive cannot change between them.
         using (var sourceLock = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
@@ -142,7 +150,7 @@ public static class CommunityInstaller
         else plan.Warnings.Add("Каталог не содержит SHA-256: подлинность загружаемого файла не подтверждена.");
         if (IsDll(zipPath))
         {
-            string leaf = Path.GetFileName(zipPath); if (!names.Contains(leaf)) throw Fail("Имя DLL не соответствует выбранному моду.");
+            string leaf = Path.GetFileName(zipPath); if(local)names.Add(leaf); if (!names.Contains(leaf)) throw Fail("Имя DLL не соответствует выбранному моду.");
             if (new FileInfo(zipPath).Length > MaxFile) throw Fail("DLL слишком велика.");
             plan.Files.Add("BepInEx/plugins/Community/" + moduleId + "/" + leaf, File.ReadAllBytes(zipPath));
             plan.Warnings.Add("Импортирована отдельная DLL. Убедитесь, что этому моду не нужны соседние ресурсы.");
@@ -163,6 +171,7 @@ public static class CommunityInstaller
                     if (entry.Length > MaxFile || entry.Length < 0 || (total += entry.Length) > MaxTotal || (entry.Length > 1024 * 1024 && entry.Length > Math.Max(1, entry.CompressedLength) * 1000)) throw Fail("Архив превышает допустимые размеры или степень сжатия.");
                     raw.Add(new KeyValuePair<string, ZipArchiveEntry>(p, entry));
                 }
+                if(local)foreach(var item in raw.Where(e=>IsDll(e.Key)))names.Add(Path.GetFileName(item.Key));
                 var prefixes = raw.Where(e => Regex.IsMatch(e.Key, "^(?:[^/]+/)?BepInEx/", RegexOptions.IgnoreCase)).Select(e => e.Key.Substring(0, e.Key.IndexOf("BepInEx/", StringComparison.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 if (prefixes.Count > 1) throw Fail("В архиве несколько корневых папок BepInEx.");
                 // A package may start at plugins/ rather than at the game root. Treat it as an
@@ -205,9 +214,40 @@ public static class CommunityInstaller
                 }
             }
         }
+        if(local&&names.Count==0)throw Fail("В архиве нет DLL плагина BepInEx. Совместимость с Casualties: Unknown не подтверждена.");
         if (!plan.Files.Any(p => names.Contains(Path.GetFileName(p.Key)))) throw Fail("В архиве не найдена основная DLL выбранного мода: " + String.Join(", ", names));
         if (plan.Files.Count == 0) throw Fail("Архив пуст.");
-        if(plan.CatalogArchiveUnverified) {
+        if(local)
+        {
+            foreach(string path in plan.Files.Keys)
+            {
+                string tail=path.Substring("BepInEx/plugins/".Length),leaf=Path.GetFileName(path);
+                if(Regex.IsMatch(tail,"(^|/)(BepInEx|patchers|config|core|CuRussian|CuWiki|Together|RuFieldGuide)(/|$)",RegexOptions.IgnoreCase)
+                    || new[]{"CuRussian.dll","CuWiki.dll","CasualtiesMP.dll","RuFieldGuide.dll"}.Contains(leaf,StringComparer.OrdinalIgnoreCase))
+                    throw Fail("Встроенный мод, загрузчик или конфигурация не устанавливаются через локальный архив: "+path);
+            }
+            var declarations=plan.Files.Where(p=>IsDll(p.Key)).SelectMany(p=>ModCatalog.InspectPlugins(p.Value)).ToList();
+            if(declarations.Count==0)throw Fail("В архиве нет DLL с декларацией BepInPlugin. Это не распознанный плагин BepInEx для этой игры; совместимость не подтверждена.");
+            if(declarations.GroupBy(p=>p.Guid,StringComparer.Ordinal).Any(group=>group.Count()>1))throw Fail("В локальном архиве несколько деклараций с одинаковым GUID плагина. Удалите дубли из архива перед установкой.");
+            if(declarations.Any(p=>p.Guid=="local.casualties.russian"||p.Guid=="local.casualties.wiki"||p.Guid=="CasualtiesMP"))throw Fail("Встроенный мод устанавливается через отдельную карточку.");
+            string identity=String.Join("\n",declarations.Select(p=>p.Guid).Distinct(StringComparer.Ordinal).OrderBy(g=>g,StringComparer.Ordinal));
+            string stable="local-"+Hash(Encoding.UTF8.GetBytes(identity));
+            string temporaryPrefix="BepInEx/plugins/Community/"+moduleId+"/";
+            var mapped=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
+            foreach(var file in plan.Files)
+            {
+                string path=file.Key.StartsWith(temporaryPrefix,StringComparison.OrdinalIgnoreCase)?"BepInEx/plugins/Community/"+stable+"/"+file.Key.Substring(temporaryPrefix.Length):file.Key;
+                PluginPath(path);Under(root,path);mapped.Add(path,file.Value);
+            }
+            plan.Files=mapped;plan.ModuleId=stable;
+            var versions=declarations.Select(p=>p.Version).Distinct(StringComparer.Ordinal).OrderBy(v=>v,StringComparer.Ordinal).ToArray();
+            plan.PluginVersion=versions.Length==1?versions[0]:"несколько версий ("+versions.Length+")";
+            plan.DisplayName=String.Join(", ",declarations.Select(p=>p.Name).Distinct(StringComparer.Ordinal));
+            if(plan.DisplayName.Length>512)plan.DisplayName=plan.DisplayName.Substring(0,509)+"…";
+            plan.CatalogArchiveUnverified=true;
+            plan.Warnings.Add("Локальный архив: GUID и версия прочитаны из DLL без выполнения кода. Они не подтверждают подлинность или совместимость с Casualties: Unknown. Проверьте игру, зависимости и источник мода перед установкой.");
+        }
+        else if(plan.CatalogArchiveUnverified) {
             var guids=new HashSet<string>(expectedPluginGuids??new string[0],StringComparer.Ordinal);
             var declarations=plan.Files.Where(p=>IsDll(p.Key)).SelectMany(p=>ModCatalog.InspectPlugins(p.Value)).Where(p=>guids.Contains(p.Guid)).ToList();
             if(guids.Count==0||declarations.Count==0)throw Fail("Другой архив не содержит ожидаемый GUID плагина выбранного мода. Его нельзя связать с этой записью каталога.");
@@ -297,8 +337,9 @@ public static class CommunityInstaller
             var old = Load(root, plan.ModuleId); CheckOwned(root, old, true);
             var previous = new HashSet<string>(old == null ? new string[0] : old.Files.Select(f => Actual(old, f)), StringComparer.OrdinalIgnoreCase);
             var other = OtherOwned(root, plan.ModuleId);
+            if(!String.IsNullOrEmpty(plan.DisplayName)&&plan.ModuleId.StartsWith("local-",StringComparison.Ordinal))GuardLocalPluginDuplicates(root,plan,previous);
             if (old != null && old.Files.Any(f => other.Contains(f.Path) || other.Contains(Actual(old, f)))) throw Fail("Конфликт владельцев ранее установленных файлов.");
-            var next = new InstalledRecord { Id = plan.ModuleId, Name = displayName, Version = plan.CatalogArchiveUnverified ? plan.PluginVersion : version, VersionSource = plan.CatalogArchiveUnverified ? "plugin-metadata" : "catalog-archive", ArchiveHash = plan.ArchiveHash, CatalogArchiveUnverified = plan.CatalogArchiveUnverified, Disabled = old != null && old.Disabled };
+            var next = new InstalledRecord { Id = plan.ModuleId, Name = String.IsNullOrEmpty(plan.DisplayName) ? displayName : plan.DisplayName, Version = plan.CatalogArchiveUnverified ? plan.PluginVersion : version, VersionSource = plan.CatalogArchiveUnverified ? "plugin-metadata" : "catalog-archive", ArchiveHash = plan.ArchiveHash, CatalogArchiveUnverified = plan.CatalogArchiveUnverified, Disabled = old != null && old.Disabled };
             var writes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in plan.Files) { PluginPath(p.Key); next.Files.Add(new OwnedFile { Path = p.Key, Hash = Hash(p.Value) }); }
             foreach (var f in next.Files) { string dest = Actual(next, f); EnsureFree(root, dest, previous, other); writes.Add(dest, plan.Files[f.Path]); }
@@ -330,6 +371,30 @@ public static class CommunityInstaller
                 if(!File.Exists(full)||new FileInfo(full).Length>MaxFile||!String.Equals(FileHash(full),pair.Value,StringComparison.OrdinalIgnoreCase))throw Fail("DLL отсутствует или изменилась после сканирования. Обновите список: "+pair.Key);
             }
             return Transaction(root,new Dictionary<string,byte[]>(),files.Keys.ToList(),"community-remove-manual",files.Count);
+        }
+    }
+    static void GuardLocalPluginDuplicates(string root,Plan plan,HashSet<string> previous)
+    {
+        var guids=new HashSet<string>(plan.Files.Where(f=>IsDll(f.Key)).SelectMany(f=>ModCatalog.InspectPlugins(f.Value)).Select(p=>p.Guid),StringComparer.Ordinal);
+        var folders=new Queue<KeyValuePair<string,int>>();folders.Enqueue(new KeyValuePair<string,int>("BepInEx/plugins",0));int count=0,directoryCount=1;long total=0;
+        while(folders.Count>0)
+        {
+            var folder=folders.Dequeue();if(folder.Value>48)throw Fail("Слишком глубокая папка плагинов: проверка GUID не завершена.");
+            string full=Under(root,folder.Key+"/check");full=Path.GetDirectoryName(full);if(!Directory.Exists(full))continue;
+            foreach(string child in Directory.GetDirectories(full)){if(++directoryCount>10000)throw Fail("Превышен предел10000 папок при проверке GUID.");folders.Enqueue(new KeyValuePair<string,int>(folder.Key+"/"+Path.GetFileName(child),folder.Value+1));}
+            foreach(string file in Directory.GetFiles(full))
+            {
+                if(!IsDll(file)&&!file.EndsWith(".dll.cumm-disabled",StringComparison.OrdinalIgnoreCase))continue;
+                string relative=folder.Key+"/"+Path.GetFileName(file);Under(root,relative);
+                if(previous.Contains(relative))continue;
+                var info=new FileInfo(file);if(++count>10000||info.Length>MaxFile||(total+=info.Length)>MaxTotal)throw Fail("Превышен предел проверки GUID установленных плагинов.");
+                byte[] bytes;
+                using(var input=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read))using(var memory=new MemoryStream())
+                {
+                    var buffer=new byte[81920];int read;while((read=input.Read(buffer,0,buffer.Length))>0){if(memory.Length+read>MaxFile||memory.Length+read>info.Length)throw Fail("DLL изменилась при проверке GUID.");memory.Write(buffer,0,read);}bytes=memory.ToArray();
+                }
+                if(ModCatalog.InspectPlugins(bytes).Any(p=>guids.Contains(p.Guid)))throw Fail("Плагин с тем же GUID уже установлен: "+relative+". Обновляйте через карточку существующей установки или сначала удалите прежнюю копию через её карточку. Существующие файлы не изменены.");
+            }
         }
     }
     public static Result Remove(string gameRoot, string moduleId)

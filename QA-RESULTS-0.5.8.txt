@@ -1,0 +1,11 @@
+Launcher0.5.8 / Russian0.2.12 unchanged / game1.0.2
+EXE SHA256: 9123e578566d028bb87f7ae192410ef3e2307ffa6b150abcc90ebaace1c9c5de
+Production builds:0warnings0errors.
+152 backend checks PASS:126 prior installer/metadata/adoption/manualremoval regressions +26local-import checks (including duplicateGUID-in-archive refusal).
+Local-import checks: unknown actual Afterdark metadata; rootDLL stablefolder; GUID-derived ID stable across versions; managed update; existingmanual enabled/disabled duplicates refused; folderassets tracked/removable; noBepPlugin/refusedreserved/traversal/config/core/patchers; sealedname tamper refusal; rollback; mixedversions stable sortedGUID; no plugin execution.
+21 extracted UI-model checks PASS: knownbuiltin/catalog/local routing; busy/pending refusal; cancellation before loader/install; exact previewed plan passed to backend; loaderdecline/error recovery.
+Final self-contained EXE PreviewLocal successfully inspects actual downloaded ScavPrototypeSexMod7290.2.3 ZIP: ScavSexMod0.2.3,1DLL; no loose Cecil dependency.
+Defender custom scan completed (event1001); no matching0.5.8 threatdetections. Definitions1.463.310.0; antivirus/realtime true. Local scan result only, not a Microsoft submission verdict.
+Russian ZIP unchanged SHA256 a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1.
+
+Checks use synthetic roots/extracted methods/read-only production inputs. No game or visible manager launch, no installed mod/config/save writes. Tests do not prove live gameplay, thirdparty mod compatibility or interactive UI behavior. BepInPlugin metadata alone cannot establish targetgame or authenticity.
