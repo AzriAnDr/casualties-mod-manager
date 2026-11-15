@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.6.0")]
-[assembly: AssemblyFileVersion("0.5.6.0")]
+[assembly: AssemblyVersion("0.5.7.0")]
+[assembly: AssemblyFileVersion("0.5.7.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.6";
+    const string LauncherVersion = "0.5.7";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }

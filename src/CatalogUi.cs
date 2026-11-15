@@ -290,13 +290,14 @@ public sealed partial class Manager
     {
         if(communityActions==null)return false;var selected=SelectedCommunity();bool extra=selected!=null;communityActions.Visible=extra;builtinActions.Visible=!extra;if(!extra)return false;
         details.Text=selected.Manual!=null?String.Join("\r\n",selected.Manual.Plugins.Select(p=>p.Name+" · "+p.Version+" (BepInPlugin)\r\nGUID: "+p.Guid).ToArray())+"\r\n\r\nDLL: "+selected.Manual.RelativePath+"\r\nSHA-256: "+selected.Manual.Sha256:selected.Entry!=null?ModCatalog.SummaryText(selected.Entry,1200):selected.Record.Name;
-        context.Text=selected.Manual!=null?"Плагин найден по объявлению BepInPlugin внутри DLL. Связь с каталогом и версия архива не подтверждены. Управление файлами недоступно.":selected.Record!=null?"Управление включено. "+selected.Record.Files.Count+" файлов. Отключение и удаление сохраняют игровые настройки.":selected.Info!=null&&selected.Info.Confidence=="plugin-guid"?"GUID плагина совпал с каталогом. Показана версия из DLL; версия и состав архива не проверены. Управление принимает только указанные DLL.":"Найдена ручная установка по хешу DLL. Подключите управление после проверки списка файлов.";
-        communityActions.Controls[0].Enabled=!busy&&selected.Entry!=null;communityActions.Controls[1].Enabled=communityActions.Controls[2].Enabled=!busy&&selected.Record!=null;communityActions.Controls[3].Enabled=!busy&&selected.Record==null&&selected.Entry!=null&&selected.Info!=null&&selected.Info.Installed&&!selected.Info.Ambiguous;return true;
+        context.Text=selected.Manual!=null?"Плагин найден по объявлению BepInPlugin внутри DLL. Связь с каталогом и версия архива не подтверждены. Можно удалить выбранную DLL с резервной копией. Соседние ресурсы и настройки сохраняются.":selected.Record!=null?"Управление включено. "+selected.Record.Files.Count+" файлов. Отключение и удаление сохраняют игровые настройки.":selected.Info!=null&&selected.Info.Confidence=="plugin-guid"?"GUID плагина совпал с каталогом. Показана версия из DLL; версия и состав архива не проверены. Управление принимает только указанные DLL.":"Найдена ручная установка по хешу DLL. Подключите управление после проверки списка файлов.";
+        communityActions.Controls[0].Enabled=!busy&&selected.Entry!=null;communityActions.Controls[1].Enabled=!busy&&selected.Record!=null;communityActions.Controls[2].Enabled=!busy&&(selected.Record!=null||selected.Manual!=null||(selected.Info!=null&&selected.Info.Installed&&!selected.Info.Ambiguous));communityActions.Controls[3].Enabled=!busy&&selected.Record==null&&selected.Entry!=null&&selected.Info!=null&&selected.Info.Installed&&!selected.Info.Ambiguous;return true;
     }
     private void ManageCommunity(string operation,bool adopt)
     {
         var selected=SelectedCommunity();if(selected==null||busy)return;
         if(adopt){if(selected.Entry!=null)AdoptDetected(selected.Entry);return;}
+        if(operation=="удаление"&&selected.Record==null){RemoveManualSelection(selected);return;}
         var record=selected.Record;if(record==null)return;string displayName=record.Name;
         try
         {
@@ -313,6 +314,24 @@ public sealed partial class Manager
         }
         catch(Exception error){ShowFailure(displayName+": "+operation,error);}
         finally{busy=false;RefreshList();var refresh=ReloadCommunity(false);}
+    }
+    private void RemoveManualSelection(CommunitySelection selected)
+    {
+        string name=selected.Manual!=null?String.Join(" / ",selected.Manual.Plugins.Select(p=>p.Name).Distinct().ToArray()):selected.Entry.Name;
+        try {
+            busy=true;UpdateDetails();ShowCommunitySelection();string root=Validate(game.Text,true);
+            var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+            if(selected.Manual!=null)files.Add(selected.Manual.RelativePath,selected.Manual.Sha256);
+            else if(selected.Info!=null&&!selected.Info.Ambiguous&&selected.Info.Installed)
+                foreach(string path in selected.Info.Files) { string hash;if(!selected.Info.HashesByFile.TryGetValue(path,out hash))throw new Exception("Не удалось проверить DLL. Обновите список.");files.Add(path,hash); }
+            if(files.Count==0)throw new Exception("DLL не выбраны. Обновите список.");
+            if(!Preview(files.ToDictionary(p=>p.Key,p=>new byte[0]),"Удалить DLL плагина «"+name+"»?\r\nБудут удалены только перечисленные DLL. Резервная копия сохранится. Соседние ресурсы (включая CustomSprites), конфиги и сохранения останутся.","Удалить DLL")){SetStatus(name+": удаление отменено.",false);return;}
+            var result=CommunityInstaller.RemoveManual(root,files);
+            SetStatus(name+": удалено DLL: "+result.FileCount+". Ресурсы и настройки сохранены.",false);
+            WriteLog(name+": удаление ручной установки; backup: "+result.BackupPath);
+        }
+        catch(Exception error){ShowFailure(name+": удаление ручного плагина",error);}
+        finally{busy=false;ModCatalog.ClearDetectionCache();RefreshList();var refresh=ReloadCommunity(false);}
     }
     private void AdoptDetected(ModCatalog.Entry entry)
     {

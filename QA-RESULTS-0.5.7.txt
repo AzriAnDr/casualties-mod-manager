@@ -1,0 +1,9 @@
+Launcher0.5.7 / Russian0.2.12 unchanged / game1.0.2
+EXE SHA256: d35dac4ef03ec47fcaa1b50707a279b822d597eac4eaed3960ebfb7018fe35e4
+Production build:0warnings0errors.
+126 backend assertions PASS:51manual removal,29installer regression,25metadata/review/seal,21stale adoption.
+Checks use synthetic game roots. Exact enabled/disabled DLL deletion; flat backup bytes restore to reviewed SHA; resources/configs/foreign ownership preserved; changed/missing/directory/protected/nonDLL selections refused as a whole; injected failure after first deletion restores both DLLs and journal records rolled_back.
+16 extracted UI assertions PASS:manual/managed action state, busy/cancel handling, exact reviewed path/hash dispatch and missinghash rejection.
+No game, visible manager or downloaded plugin execution; no installed mod/config/save writes. UI method tests are extracted-method models, not interactive desktop proof.
+Defender custom scan of final EXE completed (event1001), no matching threat detections. Definitions1.463.302.0. Does not establish a Microsoft submission verdict.
+Russian ZIP remains a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1 and no module feed change is required.

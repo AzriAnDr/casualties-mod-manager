@@ -37,6 +37,7 @@ public static class CommunityInstaller
     public sealed class Result { public string BackupPath; public int FileCount; }
 #if COMMUNITY_TESTS
     internal static Action<string> BeforeWrite;
+    internal static Action<string> BeforeDelete;
     internal static bool SkipProcessGuard;
 #endif
     static Exception Fail(string message) { return new InvalidOperationException(message); }
@@ -305,6 +306,32 @@ public static class CommunityInstaller
             return Transaction(root, writes, previous.Where(p => !writes.ContainsKey(p)).ToList(), "community-install-" + next.Id, next.Files.Count);
         }
     }
+    // Explicit unmanaged-DLL removal. A catalog association is unnecessary; the
+    // exact paths and hashes shown in the preview are the authority for deletion.
+    public static Result RemoveManual(string gameRoot, IDictionary<string,string> expectedFiles)
+    {
+        string root=Root(gameRoot,true);
+        if(expectedFiles==null||expectedFiles.Count==0||expectedFiles.Count>128)throw Fail("Выберите DLL для удаления.");
+        var files=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var pair in expectedFiles) {
+            string path=Clean(pair.Key);
+            bool disabled=path.EndsWith(".dll.cumm-disabled",StringComparison.OrdinalIgnoreCase);
+            string enabled=disabled?path.Substring(0,path.Length-".cumm-disabled".Length):path;
+            PluginPath(enabled);
+            if(!IsDll(enabled)||files.ContainsKey(path)||pair.Value==null||!Regex.IsMatch(pair.Value,"^[a-fA-F0-9]{64}$"))throw Fail("Некорректный список DLL для удаления.");
+            files.Add(path,pair.Value);
+        }
+        using(Lock(root)) {
+            GuardProcesses(root);
+            var owned=OtherOwned(root,null);
+            foreach(var pair in files) {
+                string full=Under(root,pair.Key);
+                if(owned.Contains(pair.Key))throw Fail("DLL уже принадлежит управляемому моду. Обновите список и удалите его через карточку мода: "+pair.Key);
+                if(!File.Exists(full)||new FileInfo(full).Length>MaxFile||!String.Equals(FileHash(full),pair.Value,StringComparison.OrdinalIgnoreCase))throw Fail("DLL отсутствует или изменилась после сканирования. Обновите список: "+pair.Key);
+            }
+            return Transaction(root,new Dictionary<string,byte[]>(),files.Keys.ToList(),"community-remove-manual",files.Count);
+        }
+    }
     public static Result Remove(string gameRoot, string moduleId)
     {
         string root = Root(gameRoot, true); Id(moduleId);
@@ -390,7 +417,13 @@ public static class CommunityInstaller
 #endif
                 File.WriteAllBytes(full, p.Value);
             }
-            foreach (string path in deletes.Where(p => !writes.ContainsKey(p))) { string full = Under(root, path); if (File.Exists(full)) File.Delete(full); }
+            foreach (string path in deletes.Where(p => !writes.ContainsKey(p))) {
+                string full = Under(root, path);
+#if COMMUNITY_TESTS
+                if (BeforeDelete != null) BeforeDelete(path);
+#endif
+                if (File.Exists(full)) File.Delete(full);
+            }
             File.WriteAllText(journal, Json.Serialize(new { status = "committed", operation = label, paths = paths, entries = entries }));
         }
         catch (Exception original)
