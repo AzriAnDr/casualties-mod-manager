@@ -1,0 +1,10 @@
+Launcher0.5.9 / Russian0.2.12 unchanged / game1.0.2
+EXE SHA256: cf818dbdfbfd9e2cb66eb7ba423bc8f86d0b35dd55509daec97e877441f98e8c
+Production builds:0warnings0errors.
+191 backend assertions PASS:39new +126priorregressions +25local-import +1duplicateGUID. Previous local-import test adjusted only its expected generated folder name.
+39 folder/migration checks PASS in synthetic roots: exactScavSexMod-b7045b90 folder; unchanged fullGUID ModuleId; old058 manifest updates enabled/disabled withassets; oldmanifest removalwithoutupdate; foreignresources preserved; onlyemptyoldfolder pruned; sameGUID namechange updates; authorfolder layouts unchanged; Unicode/reserved/punctuation/length sanitization; genuine8hex-prefixcollision refusedwithoutoverwrite; injectedmigrationfailure rollback restoresfiles/manifest.
+Final self-contained EXE inspected actual downloaded ScavPrototypeSexMod7290.2.3 ZIP and produced BepInEx/plugins/Community/ScavSexMod-b7045b90/ScavPrototypeSexMod.dll. Preview only, no installation.
+Defender custom scan completed(event1001), no matching0.5.9 detections. Definitions1.463.310.0; antivirus/realtime true. Not a Microsoft submission verdict.
+Russian package unchanged: a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1.
+
+No game/visiblemanager/plugin execution. No installedmod/config/save writes. Actual archive/private read-only DLL fixture used for metadata; testwrites only synthetic roots. These checks do not establish live gameplay or interactive UI proof.

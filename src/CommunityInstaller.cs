@@ -232,11 +232,18 @@ public static class CommunityInstaller
             if(declarations.Any(p=>p.Guid=="local.casualties.russian"||p.Guid=="local.casualties.wiki"||p.Guid=="CasualtiesMP"))throw Fail("Встроенный мод устанавливается через отдельную карточку.");
             string identity=String.Join("\n",declarations.Select(p=>p.Guid).Distinct(StringComparer.Ordinal).OrderBy(g=>g,StringComparer.Ordinal));
             string stable="local-"+Hash(Encoding.UTF8.GetBytes(identity));
+            // Ownership keeps the full GUID identity; only our generated folder
+            // gets a friendly name. Existing manifests still identify updates.
+            string friendly=declarations.OrderBy(p=>p.Guid,StringComparer.Ordinal).First().Name;
+            friendly=Regex.Replace(friendly,@"[^\p{L}\p{Nd}_-]+","-").Trim('-','_');
+            if(friendly.Length>40)friendly=friendly.Substring(0,40).TrimEnd('-','_');
+            if(friendly.Length==0)friendly="Mod";
+            string folder=friendly+"-"+stable.Substring("local-".Length,8);
             string temporaryPrefix="BepInEx/plugins/Community/"+moduleId+"/";
             var mapped=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
             foreach(var file in plan.Files)
             {
-                string path=file.Key.StartsWith(temporaryPrefix,StringComparison.OrdinalIgnoreCase)?"BepInEx/plugins/Community/"+stable+"/"+file.Key.Substring(temporaryPrefix.Length):file.Key;
+                string path=file.Key.StartsWith(temporaryPrefix,StringComparison.OrdinalIgnoreCase)?"BepInEx/plugins/Community/"+folder+"/"+file.Key.Substring(temporaryPrefix.Length):file.Key;
                 PluginPath(path);Under(root,path);mapped.Add(path,file.Value);
             }
             plan.Files=mapped;plan.ModuleId=stable;

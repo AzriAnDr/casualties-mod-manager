@@ -1,6 +1,6 @@
-Manager version: 0.5.8
+Manager version: 0.5.9
 Russian version: 0.2.12
 Wiki version: 0.2.1
 Plugin builds: passed, no warnings
 Manager build: passed
-Manager SHA256: 9123e578566d028bb87f7ae192410ef3e2307ffa6b150abcc90ebaace1c9c5de
+Manager SHA256: cf818dbdfbfd9e2cb66eb7ba423bc8f86d0b35dd55509daec97e877441f98e8c
