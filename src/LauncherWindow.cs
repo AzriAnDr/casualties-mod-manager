@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -72,10 +72,18 @@ public sealed class LauncherWindow : Window
         inboxTimer=new DispatcherTimer{Interval=TimeSpan.FromSeconds(3)};inboxTimer.Tick+=async delegate{inboxTimer.Stop();await ScanDownloads();};
         game.TextChanged+=delegate{if(initializing)return;++generation;mine.Clear();catalog.Clear();detected.Clear();UpdateActions();rootTimer.Stop();rootTimer.Start();};
         Loaded+=async delegate{try{game.Text=await Task.Run(()=>Backend.DefaultRoot());folder.Text=Backend.DownloadsRoot();history.Text=await Task.Run(()=>Backend.History());}catch(Exception e){Error(e);}finally{initializing=false;}StartWatcher();await Refresh(false);if(!closed&&!busy&&SteamGameLocator.IsGame(game.Text)){var packages=CheckModules();}};
+        bool cleanupStarted=false;
+        ContentRendered+=async delegate {
+            if(cleanupStarted||closed)return;
+            cleanupStarted=true;
+            // Only a successfully rendered replacement may discard its old EXE.
+            // Keep this independent of game-path validation and network checks.
+            await Task.Run(()=>LauncherUpdate.CleanupPreviousBackup());
+        };
         Closing+=delegate(object sender,System.ComponentModel.CancelEventArgs e){if(mutating){e.Cancel=true;SetStatus("Дождитесь завершения операции с файлами перед закрытием менеджера.");}};
         Closed+=delegate{closed=true;++generation;++inboxGeneration;rootTimer.Stop();inboxTimer.Stop();if(watcher!=null)watcher.Dispose();};
     }
-    static string VersionText(){var v=Assembly.GetExecutingAssembly().GetName().Version;return v==null?"0.5.12":v.ToString(3);}
+    static string VersionText(){var v=Assembly.GetExecutingAssembly().GetName().Version;return v==null?"0.5.13":v.ToString(3);}
     static Brush ColorBrush(byte r,byte g,byte b){var brush=new SolidColorBrush(Color.FromRgb(r,g,b));brush.Freeze();return brush;}
     static Grid Rows(params GridLength[] sizes){var grid=new Grid();foreach(var size in sizes)grid.RowDefinitions.Add(new RowDefinition{Height=size});return grid;}
     static void Put(Grid grid,UIElement child,int row){Grid.SetRow(child,row);grid.Children.Add(child);}

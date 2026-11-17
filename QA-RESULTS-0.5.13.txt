@@ -1,0 +1,8 @@
+Launcher0.5.13 / Russian0.2.12 unchanged
+EXE SHA256: bf74978ae4ce1320ead459609dc930d1768ab5aa43806efa6dc9b5d3e0142fcf
+Build:0warnings0errors.
+8 existing cleanup regression scenarios PASS against currentLauncherUpdate source, with only cleanup log redirected toQA: exact legacy/generated names, same/newer preservation, unrelated/manual/modbackup preservation, invalididentities/versionmismatch, lockedfile continuesothercandidate, unrelatedentryassembly guard.
+Actual WPF startup integration PASS: created2owned older EXE fixturecopies beside workspace0.5.13 (0.5.12standardbak and0.5.11timestamp-GUIDbak), launched trustednewbuild throughComputerUse. AfterContentRendered bothcopies absent and currentEXE present. No synthetic event-only substitute for this check. Existing userDownloads bak was not manually deleted; normal update to0.5.13 handles it afterrender.
+Cleanup code existing guards unchanged; WPF hook is once-per-window and offUIthread, independentofnetwork/gamepath. ClosedQAwindow confirmed absent inlaterwindowinventory.
+Defender custom scan finalEXE requested/completed without exactpath detections. Definitions1.463.342.0; antivirus/realtime true. Local scanresult only, not Microsoftsubmissionverdict.
+No game/mod/save/config writes bytests. Regression writes underwork/backup0513-tests; startupfixtures onlyunderworkspaceoutputs. Backup cleanup may append its normal update.log evidence. Game/co-op not launched/tested.
