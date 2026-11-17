@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.11.0")]
-[assembly: AssemblyFileVersion("0.5.11.0")]
+[assembly: AssemblyVersion("0.5.12.0")]
+[assembly: AssemblyFileVersion("0.5.12.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.11";
+    const string LauncherVersion = "0.5.12";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -59,7 +59,7 @@ public sealed partial class Manager : Form
                 else if(args[0]=="--remove") Remove(root,m); else if(args[0]=="--disable") Toggle(root,m,true); else if(args[0]=="--enable") Toggle(root,m,false);
                 else if(args[0]=="--adopt") Adopt(root,m); else throw new Exception("Неизвестная команда"); result=ScanText(root); } }
                 Console.WriteLine(result); Log(result); File.WriteAllText(Path.Combine(SettingsDir,"last-cli-result.json"),result,Encoding.UTF8); return 0; }
-            Application.Run(new Manager());return 0;
+            return LauncherWindow.Run();
         } catch(Exception e) { Log(e.ToString()); if(args.Length==0) MessageBox.Show(e.Message,"Менеджер модов",MessageBoxButtons.OK,MessageBoxIcon.Warning); else { Console.Error.WriteLine(e.Message); File.WriteAllText(Path.Combine(SettingsDir,"last-cli-error.txt"),e.ToString()); } return 1; }
     }
     static readonly Color Canvas = Color.FromArgb(14, 22, 29);

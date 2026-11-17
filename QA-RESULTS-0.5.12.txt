@@ -1,0 +1,12 @@
+Launcher0.5.12 / pure WPF frontend / Russian0.2.12 unchanged
+EXE SHA256: aace7b6bd59bdacfb56ad5f59173736c2dccc6ced034df52148786595c8cdab6
+Production plugins/manager builds:0warnings0errors.
+32 actual backend/engine workflow checks PASS on isolated fake roots: no preparation game writes; closedgame recheck; install/toggle/remove/adopt; loader andmod separate previewplans; unchanged sharedCore handling; sealed/replayed/stale/crossroot plans rejected; manual hash protection; fresh rows; bounded history and settings paths. Existing engine reused. Testcopy redirects settings/log and simulates gameprocess boundary, production guards intact.
+29 extracted WPF flow/state checks PASS: cancellation before writes; both previews before execution; mutating-only closeguard; generation/root stale result rejection; builtin/catalog/local ZIP routes; watcher/retry; pure WPF visiblefrontend. Model checks are not full interactive install/network tests.
+ThemeResourceDictionary parsed;7styles sealed and vertical/horizontal scrollbar templates applied without showing HWND. Fullapp starts successfully using installed FrameworkWPF assemblies. No new external runtime/package requirement beyond existing Windows.NETFramework.
+Desktop checks: oldWinForms candidates still showed missing rows/flicker. NewWPF window launched viaComputerUse and displayed installedmods/catalog/downloads; USER explicitly confirmed NOFLICKER, then approved requested padding with 'Всё отлично!'. Final screenshot confirmed12px first-column padding inDownloads and bounded tabletext. No claim of extended temporal recording; direct user observation is the live acceptance evidence.
+Defender finalEXE customscan completed with exactpath detections0; definitions1.463.342.0; antivirus/realtime true. Not a newMicrosoftsubmission verdict.
+Russian ZIP unchanged SHA256 a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1.
+
+Architecture: Manager.Main routes normalGUI toLauncherWindow.Run, no legacyManager/Form construction or WinFormsHost. LegacyForms source remains compiled because private static engine helpers/CLI are reused; visiblecontrols are WPF (OSfile dialogs separate). CLI behavior retained. Payload/source included in release; no game/proprietary extractedassets.
+No game/coop launch and no installedmod/save/config mutation by desktop test. User updatedTogether separately during earlier work; not attributed tothesechecks. Realgame/co-op behavior and allpossible thirdparty mods not established by this frontend release.

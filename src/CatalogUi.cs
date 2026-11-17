@@ -39,13 +39,29 @@ public sealed partial class Manager
     private sealed class DarkTabs : TabControl
     {
         public DarkTabs(){SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
+        protected override CreateParams CreateParams
+        {
+            get {var parameters=base.CreateParams;parameters.Style|=0x02000000;return parameters;} // WS_CLIPCHILDREN
+        }
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+        private static void PaintChromeBackground(Graphics graphics,Rectangle client,Rectangle page)
+        {
+            var saved=graphics.Save();
+            try {
+                // Hover invalidations belong to the tab chrome. Clearing the whole
+                // buffered parent also clears the page before its children repaint.
+                graphics.ExcludeClip(page);
+                using(var brush=new SolidBrush(Canvas))graphics.FillRectangle(brush,client);
+                using(var pen=new Pen(Border)){var border=page;border.Inflate(1,1);graphics.DrawRectangle(pen,border);}
+            }
+            finally{graphics.Restore(saved);}
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
-            e.Graphics.Clear(Canvas);
-            using(var pen=new Pen(Border)){var area=DisplayRectangle;area.Inflate(1,1);e.Graphics.DrawRectangle(pen,area);}
+            PaintChromeBackground(e.Graphics,ClientRectangle,DisplayRectangle);
             for(int i=0;i<TabPages.Count;i++){var rect=GetTabRect(i);using(var brush=new SolidBrush(i==SelectedIndex?Surface:Canvas))e.Graphics.FillRectangle(brush,rect);TextRenderer.DrawText(e.Graphics,TabPages[i].Text,Font,rect,i==SelectedIndex?Accent:Muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);}
         }
-        protected override void OnSelectedIndexChanged(EventArgs e){base.OnSelectedIndexChanged(e);Invalidate();}
+        protected override void OnSelectedIndexChanged(EventArgs e){base.OnSelectedIndexChanged(e);Invalidate(new Rectangle(0,0,ClientSize.Width,Math.Max(1,DisplayRectangle.Top)));}
     }
 
     private void InstallCatalogUi(TableLayoutPanel outer, Control information, FlowLayoutPanel actions)
