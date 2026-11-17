@@ -90,8 +90,8 @@ public sealed partial class Manager
         var view=new ListView{Dock=DockStyle.Fill,View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,BackColor=Surface,ForeColor=Ink,BorderStyle=BorderStyle.None,ShowItemToolTips=true,OwnerDraw=true};
         foreach(string c in columns)view.Columns.Add(c);
         view.DrawColumnHeader+=delegate(object sender,DrawListViewColumnHeaderEventArgs e){using(var brush=new SolidBrush(Border))e.Graphics.FillRectangle(brush,e.Bounds);TextRenderer.DrawText(e.Graphics,e.Header.Text,Font,e.Bounds,Ink,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);NativeTheme.DrawColumnSeparator(e.Graphics,e.Bounds,true);};
-        view.DrawItem+=delegate(object sender,DrawListViewItemEventArgs e){if(view.View!=View.Details)e.DrawDefault=true;};
-        view.DrawSubItem+=delegate(object sender,DrawListViewSubItemEventArgs e){using(var brush=new SolidBrush(e.Item.Selected?Color.FromArgb(26,74,73):Surface))e.Graphics.FillRectangle(brush,e.Bounds);var rect=e.Bounds;rect.X+=6;rect.Width-=8;TextRenderer.DrawText(e.Graphics,e.SubItem.Text,Font,rect,Ink,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);NativeTheme.DrawColumnSeparator(e.Graphics,e.Bounds,false);};
+        view.DrawItem+=delegate(object sender,DrawListViewItemEventArgs e){NativeTheme.DrawDetailsItem(view,e,Color.FromArgb(26,74,73),Surface,Ink);};
+        view.DrawSubItem+=delegate(object sender,DrawListViewSubItemEventArgs e){NativeTheme.DrawDetailsSubItem(view,e,Color.FromArgb(26,74,73),Surface,Ink);};
         bool sizingColumns=false;
         view.SizeChanged+=delegate{if(sizingColumns)return;sizingColumns=true;try{int width=Math.Max(80,view.ClientSize.Width-24);int[] shares=view.Columns.Count==5?new[]{34,18,12,16,20}:view.Columns.Count==4?new[]{42,22,12,24}:null;for(int i=0;i<view.Columns.Count;i++)view.Columns[i].Width=shares==null?width/view.Columns.Count:width*shares[i]/100;}finally{sizingColumns=false;}};
         view.SmallImageList=new ImageList{ImageSize=new Size(1,32)};view.SmallImageList.Images.Add(new Bitmap(1,32));return view;
@@ -311,8 +311,8 @@ public sealed partial class Manager
             ids.Add(record.Id);foreach(var file in record.Files)represented.Add(InventoryPath(file.Path));
             var entry=communityEntries.FirstOrDefault(e=>e.Id==record.Id);ModCatalog.InstalledInfo info=null;if(entry!=null)communityDetected.TryGetValue(entry.Id,out info);
             var selection=new CommunitySelection{Record=record,Entry=entry,Info=info};
-            string state=present<record.Files.Count?"Установка неполная · "+present+" / "+record.Files.Count+" файлов":record.Disabled?"Отключён":record.Id.StartsWith("local-",StringComparison.Ordinal)?"Локальный мод · под управлением":"Из каталога · под управлением";
-            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+(record.VersionSource=="plugin-metadata"?" (плагин)":" (пакет)"),entry==null?(record.Id.StartsWith("local-",StringComparison.Ordinal)?"Из нового ZIP":"Нужен каталог"):UpdateText(entry),InstalledGameVersion(entry,info,record.VersionSource=="plugin-metadata"?null:record.Version)}){Tag=selection});
+            string state=present<record.Files.Count?"Установка неполная · "+present+" / "+record.Files.Count+" файлов":record.Disabled?"Отключён":record.Id=="shared-cucorelib"?"Общая библиотека · под управлением":record.Id.StartsWith("local-",StringComparison.Ordinal)?"Локальный мод · под управлением":"Из каталога · под управлением";
+            list.Items.Add(new ListViewItem(new[]{record.Name,state,record.Version+(record.VersionSource=="plugin-metadata"?" (плагин)":" (пакет)"),entry==null?(record.Id=="shared-cucorelib"?"В комплекте Together":record.Id.StartsWith("local-",StringComparison.Ordinal)?"Из нового ZIP":"Нужен каталог"):UpdateText(entry),InstalledGameVersion(entry,info,record.VersionSource=="plugin-metadata"?null:record.Version)}){Tag=selection});
         }
         foreach(var e in communityEntries)
         {

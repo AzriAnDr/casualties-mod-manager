@@ -1,0 +1,12 @@
+Launcher0.5.11 / Russian0.2.12 unchanged / game1.0.2
+EXE SHA256: 91d22509c5efca4b7a8d9530f7c94d538c78d630af71a5aa066c2c09bd900b52
+Production build:0warnings0errors.
+28 actualsharedhelper assertionsPASS: metadata/identicalexternalreuse/noownership, independentmanifest, duplicates/disabled/conflictingcopies, ownedupgrade/currenthashvalidation/stalerepair, foreignownership protection.
+24 extractedactualManager+realhelper integrationassertionsPASS withofficial553 ZIP: strictparse, skippedloader, unrelatedplugin rejection, separateownership, Togetherremove/legacytoggle keepsCore, atomicrollback. LongQAroot surfaced mirroredbackupPathTooLong; flatbackup fix rerun inoriginal LONG root passes.54 numberedbackupblobs hashverified againstjournal.
+13 actualNativeTheme bitmap/WinForms eventargs testsPASS: DrawItem-only celltext, selectionpalette/clipping/horizontalscroll, sharedsubitempaint. Tests create no nativewindowhandle. Masked LVS_EX_DOUBLEBUFFER preservesotherstyles. Maincommunityappend batched insideBegin/EndUpdate.
+Official553 ZIP SHA256 b0a54ce6e177318fe28c0f9a13ed9bfea4efbdb90d186e6b38c4c7d1a26646e0. CUCoreLibSHA256 c0f064260b2671d02bf802c460aa346c6b858ec9269f2ff93439ebabaa940aa3 matches installedlibrary read-only.
+Defender finalEXE customscan completed(event1001); exactfilepath threatdetections0. Definitions1.463.342.0; realtime/antivirus true. Not a new Microsoftsubmissionverdict.
+Russian ZIP unchanged a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1.
+
+Desktop old0.5.10 error reproduced using ComputerUse: UpdateTogether -> downloadpreview -> CUCoreLib error ->OK. Duringusermousemovement oldwindow screenshot captured blankpluginrowtexts/nativeblue rectangle. Newwindowlaunch attempt was stopped with physicalEsc; no post-fix livehover/temporal flicker verification claimed. User explicitly requested immediate release for manualtest.
+No installedgame/mod/config/save writes byupdateattempt. All enginewrites isolatedQAroots. No game/co-op launch; newTogether runtime and multiplayer behavior not verified here.

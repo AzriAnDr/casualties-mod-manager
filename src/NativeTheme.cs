@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
@@ -12,6 +12,54 @@ internal static class NativeTheme
         if(bounds.Width<=0||bounds.Height<=0)return;
         using(var pen=new Pen(header?Color.FromArgb(71,91,102):Color.FromArgb(49,69,80)))
             graphics.DrawLine(pen,bounds.Right-1,bounds.Top,bounds.Right-1,bounds.Bottom-1);
+    }
+    internal static void DrawDetailsItem(ListView owner,DrawListViewItemEventArgs e,Color selectedColor,Color normalColor,Color textColor,Color? statusColor=null,int inset=6)
+    {
+        if(owner.View!=View.Details){e.DrawDefault=true;return;}
+        e.DrawDefault=false;
+        int offset=owner.IsHandleCreated?GetScrollPos(owner.Handle,0):0;
+        var widths=new int[owner.Columns.Count];for(int i=0;i<widths.Length;i++)widths[i]=owner.Columns[i].Width;
+        DrawDetailsRow(e.Graphics,e.Item,e.Bounds,owner.ClientRectangle,widths,offset,owner.Font,e.Item.Selected,selectedColor,normalColor,textColor,statusColor,inset);
+    }
+    internal static void DrawDetailsSubItem(ListView owner,DrawListViewSubItemEventArgs e,Color selectedColor,Color normalColor,Color textColor,Color? statusColor=null,int inset=6)
+    {
+        if(owner.View!=View.Details){e.DrawDefault=true;return;}
+        e.DrawDefault=false;int x=owner.IsHandleCreated?-GetScrollPos(owner.Handle,0):0;
+        for(int i=0;i<e.ColumnIndex;i++)x+=owner.Columns[i].Width;
+        if(e.ColumnIndex<0||e.ColumnIndex>=owner.Columns.Count)return;
+        var bounds=new Rectangle(x,e.Bounds.Top,owner.Columns[e.ColumnIndex].Width,e.Bounds.Height);
+        PaintDetailsCell(e.Graphics,e.SubItem.Text,bounds,owner.ClientRectangle,owner.Font,e.Item.Selected?selectedColor:normalColor,e.ColumnIndex==1&&!e.Item.Selected&&statusColor.HasValue?statusColor.Value:textColor,inset);
+    }
+    internal static void DrawDetailsRow(Graphics graphics,ListViewItem item,Rectangle bounds,Rectangle client,int[] widths,int scrollOffset,Font font,bool selected,Color selectedColor,Color normalColor,Color textColor,Color? statusColor,int inset)
+    {
+        Rectangle clip=Rectangle.Intersect(bounds,client);if(clip.Width<=0||clip.Height<=0)return;
+        var saved=graphics.Save();
+        try
+        {
+            graphics.SetClip(clip,System.Drawing.Drawing2D.CombineMode.Intersect);
+            using(var brush=new SolidBrush(selected?selectedColor:normalColor))graphics.FillRectangle(brush,clip);
+            int x=-scrollOffset;
+            for(int i=0;i<widths.Length;i++)
+            {
+                var cell=new Rectangle(x,bounds.Top,widths[i],bounds.Height);x+=widths[i];
+                PaintDetailsCell(graphics,i<item.SubItems.Count?item.SubItems[i].Text:"",cell,clip,font,selected?selectedColor:normalColor,i==1&&!selected&&statusColor.HasValue?statusColor.Value:textColor,inset);
+            }
+        }
+        finally{graphics.Restore(saved);}
+    }
+    static void PaintDetailsCell(Graphics graphics,string text,Rectangle bounds,Rectangle clip,Font font,Color background,Color foreground,int inset)
+    {
+        Rectangle visible=Rectangle.Intersect(bounds,clip);if(visible.Width<=0||visible.Height<=0)return;
+        var saved=graphics.Save();
+        try
+        {
+            graphics.SetClip(visible,System.Drawing.Drawing2D.CombineMode.Intersect);
+            using(var brush=new SolidBrush(background))graphics.FillRectangle(brush,bounds);
+            var label=new Rectangle(bounds.X+inset,bounds.Y,Math.Max(0,bounds.Width-inset-4),bounds.Height);
+            if(label.Width>0)TextRenderer.DrawText(graphics,text,font,label,foreground,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix|TextFormatFlags.PreserveGraphicsClipping|TextFormatFlags.PreserveGraphicsTranslateTransform);
+            DrawColumnSeparator(graphics,bounds,false);
+        }
+        finally{graphics.Restore(saved);}
     }
     [DllImport("uxtheme.dll",EntryPoint="#135")] static extern int SetPreferredAppMode(int mode);
     [DllImport("uxtheme.dll",EntryPoint="#133")] static extern bool AllowDarkModeForWindow(IntPtr window,bool allow);
@@ -46,7 +94,12 @@ internal static class NativeTheme
             AllowDarkModeForWindow(control.Handle,true);
             SetWindowTheme(control.Handle,"DarkMode_Explorer",null);
             var list=control as ListView;
-            if(list!=null){IntPtr header=SendMessage(list.Handle,0x101f,IntPtr.Zero,IntPtr.Zero);if(header!=IntPtr.Zero){SetWindowTheme(header,"DarkMode_Explorer",null);var painter=new HeaderTail(list);painter.AssignHandle(header);var frame=new ScrollCorner(list,header);frame.AssignHandle(list.Handle);list.Disposed+=delegate{painter.ReleaseHandle();frame.ReleaseHandle();};}}
+            if(list!=null){
+                // Masked native style: buffer this list's paints without changing
+                // selection, checkbox/grid styles or composing the entire form.
+                const int LvmSetExtendedListViewStyle=0x1036,LvsExDoubleBuffer=0x00010000;
+                SendMessage(list.Handle,LvmSetExtendedListViewStyle,new IntPtr(LvsExDoubleBuffer),new IntPtr(LvsExDoubleBuffer));
+                IntPtr header=SendMessage(list.Handle,0x101f,IntPtr.Zero,IntPtr.Zero);if(header!=IntPtr.Zero){SetWindowTheme(header,"DarkMode_Explorer",null);var painter=new HeaderTail(list);painter.AssignHandle(header);var frame=new ScrollCorner(list,header);frame.AssignHandle(list.Handle);list.Disposed+=delegate{painter.ReleaseHandle();frame.ReleaseHandle();};}}
             control.Invalidate(true);
         }
         catch(EntryPointNotFoundException){}catch(DllNotFoundException){}

@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.10.0")]
-[assembly: AssemblyFileVersion("0.5.10.0")]
+[assembly: AssemblyVersion("0.5.11.0")]
+[assembly: AssemblyFileVersion("0.5.11.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.10";
+    const string LauncherVersion = "0.5.11";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -129,8 +129,8 @@ public sealed partial class Manager : Form
         list = new ListView { Dock = DockStyle.Fill, MinimumSize = new Size(0, 185), View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, HeaderStyle = ColumnHeaderStyle.Nonclickable, BackColor = Surface, ForeColor = Ink, BorderStyle = BorderStyle.None, OwnerDraw = true, ShowItemToolTips = true, Margin = new Padding(0, 0, 0, 16) };
         list.Columns.Add("Модуль"); list.Columns.Add("Состояние"); list.Columns.Add("Установлено"); list.Columns.Add("Доступно"); list.Columns.Add("Версия игры");
         list.DrawColumnHeader += delegate(object sender, DrawListViewColumnHeaderEventArgs e) { using (var b = new SolidBrush(Border)) e.Graphics.FillRectangle(b, e.Bounds); TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height), Ink, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis); NativeTheme.DrawColumnSeparator(e.Graphics,e.Bounds,true); };
-        list.DrawItem += delegate(object sender, DrawListViewItemEventArgs e) { if (list.View != View.Details) e.DrawDefault = true; };
-        list.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { bool selected = e.Item.Selected; Color color = selected ? Color.FromArgb(26, 74, 73) : Surface; using (var b = new SolidBrush(color)) e.Graphics.FillRectangle(b, e.Bounds); Color text = e.ColumnIndex == 1 && !selected ? Accent : Ink; TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Font, new Rectangle(e.Bounds.X + 12, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height), text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis); NativeTheme.DrawColumnSeparator(e.Graphics,e.Bounds,false); };
+        list.DrawItem += delegate(object sender,DrawListViewItemEventArgs e){NativeTheme.DrawDetailsItem(list,e,Color.FromArgb(26,74,73),Surface,Ink,Accent,12);};
+        list.DrawSubItem += delegate(object sender,DrawListViewSubItemEventArgs e){NativeTheme.DrawDetailsSubItem(list,e,Color.FromArgb(26,74,73),Surface,Ink,Accent,12);};
         // A scaled image list supplies readable, evenly spaced native rows without custom hit-testing.
         list.SmallImageList = new ImageList { ImageSize = new Size(1, 38), ColorDepth = ColorDepth.Depth32Bit };
         list.SmallImageList.Images.Add(new Bitmap(1, 38));
@@ -243,9 +243,8 @@ public sealed partial class Manager : Form
             Directory.CreateDirectory(SettingsDir); File.WriteAllText(Path.Combine(SettingsDir, "game-path.txt"), root);
             int index = list.SelectedIndices.Count > 0 ? list.SelectedIndices[0] : 0;
             list.BeginUpdate();
-            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m),ModuleGameVersion(m,version,mf) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; }
+            try { list.Items.Clear(); foreach (Module m in VisibleModules(root)) { Manifest mf = Load(root, m); var detected = Detect(root, m); string version = VersionOf(root, m, mf); string state = ModuleState(m,mf,detected.Count,version); var row = new ListViewItem(new[] { m.Name, state, version, Available(m),ModuleGameVersion(m,version,mf) }); row.Tag=m; row.ToolTipText = m.Name + "\n" + state + "\n" + m.Description; list.Items.Add(row); } list.Items[Math.Min(index, list.Items.Count - 1)].Selected = true; AppendCommunityRows(root); }
             finally { list.EndUpdate(); }
-            AppendCommunityRows(root);
             UpdateDetails();
         }
         catch (Exception e)
@@ -337,7 +336,7 @@ public sealed partial class Manager : Form
     static string ManifestPath(string root,Module m){return Under(root,State+m.Id+".json");}
     new static Manifest Load(string root,Module m){string p=ManifestPath(root,m);if(!File.Exists(p))return null;Manifest mf=Json.Deserialize<Manifest>(File.ReadAllText(p));if(mf==null||mf.Module!=m.Id||mf.Files==null)throw new Exception("Повреждён манифест "+m.Id);foreach(Item f in mf.Files)if(!Allowed(m,f.Path)||String.IsNullOrEmpty(f.Hash))throw new Exception("Некорректный манифест "+m.Id);if(mf.Files.Select(f=>f.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=mf.Files.Count)throw new Exception("Повтор путей в манифесте");return mf;}
     static Stream Resource(Module m){if(m.Resource==null)throw new Exception("Используйте ZIP или загрузку Together из GitHub.");Stream s=Assembly.GetExecutingAssembly().GetManifestResourceStream(m.Resource);if(s==null)throw new Exception("В сборке нет ресурса "+m.Resource);return s;}
-    static bool Allowed(Module m,string path){string p=path.Replace('\\','/');if(p.Split('/').Any(x=>x==".."||x=="."||x.EndsWith(".")||x.EndsWith(" "))||p.IndexOf(':')>=0)return false;if(m.Id=="russian"||m.Id=="wiki"||m.Id=="unlock")return p.StartsWith(m.Prefix,StringComparison.OrdinalIgnoreCase)||(m.Id=="unlock"&&p.Equals("BepInEx/plugins/SkipCharacterUnlock.dll",StringComparison.OrdinalIgnoreCase));if(m.Id=="together")return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)||p.Equals("BepInEx/patchers/CT_AutoUpdateApplier.dll",StringComparison.OrdinalIgnoreCase);if(m.Id=="bepinex")return p.StartsWith("BepInEx/core/",StringComparison.OrdinalIgnoreCase)||p.Equals("winhttp.dll",StringComparison.OrdinalIgnoreCase)||p.Equals("doorstop_config.ini",StringComparison.OrdinalIgnoreCase)||p.Equals(".doorstop_version",StringComparison.OrdinalIgnoreCase);return false;}
+    static bool Allowed(Module m,string path){string p=path.Replace('\\','/');if(p.Split('/').Any(x=>x==".."||x=="."||x.EndsWith(".")||x.EndsWith(" "))||p.IndexOf(':')>=0)return false;if(m.Id=="russian"||m.Id=="wiki"||m.Id=="unlock")return p.StartsWith(m.Prefix,StringComparison.OrdinalIgnoreCase)||(m.Id=="unlock"&&p.Equals("BepInEx/plugins/SkipCharacterUnlock.dll",StringComparison.OrdinalIgnoreCase));if(m.Id=="together")return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)||p.Equals("BepInEx/patchers/CT_AutoUpdateApplier.dll",StringComparison.OrdinalIgnoreCase)||IsTogetherCoreLibrary(p);if(m.Id=="bepinex")return p.StartsWith("BepInEx/core/",StringComparison.OrdinalIgnoreCase)||p.Equals("winhttp.dll",StringComparison.OrdinalIgnoreCase)||p.Equals("doorstop_config.ini",StringComparison.OrdinalIgnoreCase)||p.Equals(".doorstop_version",StringComparison.OrdinalIgnoreCase);return false;}
     const long MaximumZipFileBytes = 128L * 1024 * 1024;
     const long MaximumZipTotalBytes = 256L * 1024 * 1024;
     const int TogetherMetadataBytes = 2 * 1024 * 1024;
@@ -370,7 +369,15 @@ public sealed partial class Manager : Form
             }
         }
         if (result.Count == 0 || !result.Keys.Any(p => Path.GetFileName(p).Equals(module.Dll, StringComparison.OrdinalIgnoreCase))) throw new InvalidDataException("В ZIP не найден основной файл выбранного модуля: " + module.Dll + ". Выберите предназначенный для этого модуля ZIP.");
+        if(module.Id=="together")foreach(var file in result.Where(f=>IsTogetherCoreLibrary(f.Key)))ValidateTogetherCoreLibrary(file.Value);
         return result;
+    }
+    static bool IsTogetherCoreLibrary(string path){return path.Replace('\\','/').Equals("BepInEx/plugins/CUCoreLib.dll",StringComparison.OrdinalIgnoreCase);}
+    static void ValidateTogetherCoreLibrary(byte[] bytes)
+    {
+        var declarations=ModCatalog.InspectPlugins(bytes);
+        if(declarations.Count!=1||declarations[0].Guid!="net.cucorelib"||declarations[0].Name!="CUCoreLib"||String.IsNullOrWhiteSpace(declarations[0].Version))
+            throw new InvalidDataException("CUCoreLib.dll не содержит ожидаемую декларацию BepInPlugin net.cucorelib/CUCoreLib с версией.");
     }
     static byte[] ReadZipEntry(Stream input, long declaredLength, ref long actualTotal)
     {
@@ -388,7 +395,7 @@ public sealed partial class Manager : Form
             return memory.ToArray();
         }
     }
-    static string Actual(Manifest mf,Item f){return f.Path+(mf.Disabled&&f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)?".cumm-disabled":"");}
+    static string Actual(Manifest mf,Item f){return f.Path+(mf.Disabled&&f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)&&(mf.Module!="together"||!IsTogetherCoreLibrary(f.Path))?".cumm-disabled":"");}
     static void CheckOwned(string root,Manifest mf){if(mf==null)return;foreach(Item f in mf.Files){string p=Under(root,Actual(mf,f));if(!File.Exists(p)||Hash(p)!=f.Hash)throw new Exception("Управляемый файл отсутствует или изменён: "+Actual(mf,f)+". Восстановите файл из копии либо сохраните изменения отдельно.");}}
     static List<string> Detect(string root,Module m){var files=new List<string>();if(m.Id=="unlock"&&File.Exists(Under(root,"BepInEx/plugins/SkipCharacterUnlock.dll")))files.Add("BepInEx/plugins/SkipCharacterUnlock.dll");string prefix=m.Prefix;string dir=Under(root,prefix.TrimEnd('/'));if(Directory.Exists(dir))foreach(string f in EnumerateSafe(root,dir)){string rel=f.Substring(root.Length+1).Replace('\\','/');if(Allowed(m,rel)&&(m.Id!="together"||KnownTogether(rel)))files.Add(rel);}if(m.Id=="bepinex")foreach(string p in new[]{"winhttp.dll","doorstop_config.ini",".doorstop_version"})if(File.Exists(Under(root,p)))files.Add(p);if(m.Id=="together"){string patch=Under(root,"BepInEx/patchers");if(Directory.Exists(patch))foreach(string f in EnumerateSafe(root,patch)){string rel=f.Substring(root.Length+1).Replace('\\','/');if(Path.GetFileName(f).Equals("CT_AutoUpdateApplier.dll",StringComparison.OrdinalIgnoreCase))files.Add(rel);}}return files;}
     static bool KnownTogether(string p){string[] names={"CasualtiesMP.dll","opus.dll","OpusSharp.Core.dll","RefMagic.dll","LiteNetLib.dll","LiteEntitySystem.dll","System.Runtime.CompilerServices.Unsafe.dll","K4os.Compression.LZ4.dll","Multiupdater.dll"};return p.StartsWith("BepInEx/plugins/Together/",StringComparison.OrdinalIgnoreCase)&&names.Contains(Path.GetFileName(p),StringComparer.OrdinalIgnoreCase);}
@@ -411,27 +418,29 @@ public sealed partial class Manager : Form
     // A failed restore must not prevent restoration of the remaining files.
     static void Transaction(string root, Dictionary<string, byte[]> writes, List<string> deletes, string label)
     {
-        string backupRel = State + "backups/" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff") + "-" + label + "/";
+        string backupRel = State + "backups/" + Guid.NewGuid().ToString("N").Substring(0,16) + "/";
         string journal = Under(root, backupRel + "transaction.json");
         Directory.CreateDirectory(Path.GetDirectoryName(journal));
         var before = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var backupNames = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);int backupIndex=0;
         var paths = writes.Keys.Concat(deletes).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         foreach (string relative in paths)
         {
             string full = Under(root, relative); before[relative] = File.Exists(full) ? File.ReadAllBytes(full) : null;
-            if (before[relative] != null) { string copy = Under(root, backupRel + "files/" + relative); Directory.CreateDirectory(Path.GetDirectoryName(copy)); File.WriteAllBytes(copy, before[relative]); }
+            if (before[relative] != null) { string name="files/"+(backupIndex++).ToString("D6")+".bin";string copy = Under(root, backupRel + name); Directory.CreateDirectory(Path.GetDirectoryName(copy)); File.WriteAllBytes(copy, before[relative]);backupNames.Add(relative,name); }
         }
-        File.WriteAllText(journal, Json.Serialize(new { status = "prepared", paths = paths, absent = before.Where(p => p.Value == null).Select(p => p.Key).ToArray() }));
+        var entries=before.Select(p=>new{path=p.Key,backup=p.Value==null?null:backupNames[p.Key],absent=p.Value==null,sha256=p.Value==null?null:Hash(p.Value)}).ToArray();
+        File.WriteAllText(journal, Json.Serialize(new { status = "prepared", operation=label, paths = paths, entries=entries, absent = before.Where(p => p.Value == null).Select(p => p.Key).ToArray() }));
         try
         {
             foreach (var entry in writes) { string full = Under(root, entry.Key); Directory.CreateDirectory(Path.GetDirectoryName(full)); File.WriteAllBytes(full, entry.Value); }
             foreach (string relative in deletes) if (!writes.ContainsKey(relative)) { string full = Under(root, relative); if (File.Exists(full)) File.Delete(full); }
-            File.WriteAllText(journal, Json.Serialize(new { status = "committed", paths = paths }));
+            File.WriteAllText(journal, Json.Serialize(new { status = "committed", operation=label, paths = paths, entries=entries }));
         }
         catch (Exception original)
         {
             List<Exception> failures = RestoreBefore(root, before);
-            try { File.WriteAllText(journal, Json.Serialize(new { status = failures.Count == 0 ? "rolled_back" : "rollback_incomplete", paths = paths, errors = failures.Select(e => e.Message).ToArray() })); }
+            try { File.WriteAllText(journal, Json.Serialize(new { status = failures.Count == 0 ? "rolled_back" : "rollback_incomplete", operation=label, paths = paths, entries=entries, errors = failures.Select(e => e.Message).ToArray() })); }
             catch (Exception journalError) { failures.Add(new IOException("Не удалось записать результат отката: " + journal, journalError)); }
             if (failures.Count > 0)
             {
@@ -463,9 +472,51 @@ public sealed partial class Manager : Form
         string current=ReadGameVersion(root);
         if(String.IsNullOrEmpty(current)||supported==null||!supported.Contains(current,StringComparer.Ordinal))throw new InvalidDataException("Пакет рассчитан на игру "+String.Join(", ",supported??new string[0])+". Найдена "+(current??"неизвестная версия")+"; файлы модулей не изменены.");
     }
-    static void Install(string root,Module m,Dictionary<string,byte[]> files,string version,string[] supportedGames=null){if(m.Id=="unlock")throw new InvalidOperationException("Character Unlock удалён из встроенных модулей; установка через эту карточку недоступна.");string[] packageGames=PackageGameVersions(m,files,supportedGames);if(m.Id=="russian"||m.Id=="wiki")RequireGameVersion(root,packageGames);Manifest old=Load(root,m);CheckOwned(root,old);if((m.Id=="russian"||m.Id=="wiki")&&File.Exists(Under(root,"BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll")))throw new Exception("Обнаружен прежний объединённый RuFieldGuide. Удалите его предыдущим установщиком перед установкой отдельных модулей. Журнал открытий будет сохранён.");if(old!=null&&old.Disabled)throw new Exception("Сначала включите модуль перед обновлением.");if(m.Id!="bepinex"&&!File.Exists(Under(root,"BepInEx/core/BepInEx.dll")))throw new Exception("Сначала установите BepInEx отдельным модулем.");if(old==null&&Detect(root,m).Count>0)throw new Exception("Обнаружена ручная установка. Проверьте список и нажмите «Управлять модом…» перед обновлением.");var oldFiles=old==null?new List<Item>():old.Files;foreach(string rel in files.Keys){Under(root,rel);if(File.Exists(Under(root,rel))&&!oldFiles.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл не принадлежит модулю: "+rel+". Он сохранён без изменений.");foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){Manifest om=Load(root,other);if(om!=null&&om.Files.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл принадлежит модулю "+other.Name+": "+rel);}}var next=new Manifest{Module=m.Id,Version=version,GameVersions=packageGames,Files=files.Select(kv=>new Item{Path=kv.Key,Hash=Hash(kv.Value)}).ToList()};var writes=new Dictionary<string,byte[]>(files,StringComparer.OrdinalIgnoreCase);writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(next)));Transaction(root,writes,oldFiles.Where(f=>!files.ContainsKey(f.Path)).Select(f=>f.Path).ToList(),"install-"+m.Id);}
-    static void Remove(string root,Module m){Manifest old=Load(root,m);if(old==null)throw new Exception("Ручная установка не удаляется автоматически.");CheckOwned(root,old);if(m.Id=="bepinex"){string dir=Under(root,"BepInEx/plugins");string patchers=Under(root,"BepInEx/patchers");if((Directory.Exists(dir)&&EnumerateSafe(root,dir).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)))||(Directory.Exists(patchers)&&EnumerateSafe(root,patchers).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase))))throw new Exception("Сначала удалите моды: загрузчик используется plugins или patchers.");}var deletes=old.Files.Select(f=>Actual(old,f)).ToList();deletes.Add(State+m.Id+".json");Transaction(root,new Dictionary<string,byte[]>(),deletes,"remove-"+m.Id);}
-    static void Toggle(string root,Module m,bool disabled){if(m.Id=="bepinex")throw new Exception("Общий загрузчик нельзя отключать этим способом.");Manifest old=Load(root,m);if(old==null)throw new Exception("Модуль не управляется менеджером.");CheckOwned(root,old);if(old.Disabled==disabled)return;var writes=new Dictionary<string,byte[]>();var deletes=new List<string>();foreach(Item f in old.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))){string source=Actual(old,f),dest=f.Path+(disabled?".cumm-disabled":"");if(File.Exists(Under(root,dest)))throw new Exception("Путь уже занят: "+dest);writes.Add(dest,File.ReadAllBytes(Under(root,source)));deletes.Add(source);}old.Disabled=disabled;writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(old)));Transaction(root,writes,deletes,(disabled?"disable-":"enable-")+m.Id);}
+    static void Install(string root,Module m,Dictionary<string,byte[]> files,string version,string[] supportedGames=null)
+    {
+        if(m.Id=="unlock")throw new InvalidOperationException("Character Unlock удалён из встроенных модулей; установка через эту карточку недоступна.");
+        string[] packageGames=PackageGameVersions(m,files,supportedGames);
+        if(m.Id=="russian"||m.Id=="wiki")RequireGameVersion(root,packageGames);
+        Manifest old=Load(root,m);CheckOwned(root,old);
+        if((m.Id=="russian"||m.Id=="wiki")&&File.Exists(Under(root,"BepInEx/plugins/RuFieldGuide/RuFieldGuide.dll")))throw new Exception("Обнаружен прежний объединённый RuFieldGuide. Удалите его предыдущим установщиком перед установкой отдельных модулей. Журнал открытий будет сохранён.");
+        if(old!=null&&old.Disabled)throw new Exception("Сначала включите модуль перед обновлением.");
+        if(m.Id!="bepinex"&&!File.Exists(Under(root,"BepInEx/core/BepInEx.dll")))throw new Exception("Сначала установите BepInEx отдельным модулем.");
+        if(old==null&&Detect(root,m).Count>0)throw new Exception("Обнаружена ручная установка. Проверьте список и нажмите «Управлять модом…» перед обновлением.");
+        var dependencyWrites=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
+        files=PrepareTogetherDependencies(root,m,files,dependencyWrites);
+        var oldFiles=old==null?new List<Item>():old.Files;
+        var communityOwners=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var record in CommunityInstaller.ListInstalled(root))foreach(var file in record.Files)
+        {
+            communityOwners.Add(file.Path);
+            if(record.Disabled&&file.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase))communityOwners.Add(file.Path+".cumm-disabled");
+        }
+        foreach(string rel in files.Keys)
+        {
+            if(!Allowed(m,rel))throw new InvalidDataException("Файл не относится к выбранному модулю: "+rel);
+            Under(root,rel);
+            if(communityOwners.Contains(rel)||communityOwners.Contains(rel+".cumm-disabled"))throw new Exception("Файл принадлежит модулю сообщества: "+rel);
+            if(File.Exists(Under(root,rel))&&!oldFiles.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл не принадлежит модулю: "+rel+". Он сохранён без изменений.");
+            foreach(Module other in AllModules.Where(x=>x.Id!=m.Id))
+            {
+                Manifest om=Load(root,other);
+                if(om!=null&&om.Files.Any(f=>f.Path.Equals(rel,StringComparison.OrdinalIgnoreCase)))throw new Exception("Файл принадлежит модулю "+other.Name+": "+rel);
+            }
+        }
+        var next=new Manifest{Module=m.Id,Version=version,GameVersions=packageGames,Files=files.Select(kv=>new Item{Path=kv.Key,Hash=Hash(kv.Value)}).ToList()};
+        var writes=new Dictionary<string,byte[]>(files,StringComparer.OrdinalIgnoreCase);
+        writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(next)));
+        foreach(var dependency in dependencyWrites)
+        {
+            Under(root,dependency.Key);
+            if(writes.ContainsKey(dependency.Key))throw new InvalidDataException("Повтор пути общей зависимости: "+dependency.Key);
+            writes.Add(dependency.Key,dependency.Value);
+        }
+        var deletes=oldFiles.Where(f=>!files.ContainsKey(f.Path)&&(m.Id!="together"||!IsTogetherCoreLibrary(f.Path))).Select(f=>f.Path).ToList();
+        Transaction(root,writes,deletes,"install-"+m.Id);
+    }
+    static void Remove(string root,Module m){Manifest old=Load(root,m);if(old==null)throw new Exception("Ручная установка не удаляется автоматически.");CheckOwned(root,old);if(m.Id=="bepinex"){string dir=Under(root,"BepInEx/plugins");string patchers=Under(root,"BepInEx/patchers");if((Directory.Exists(dir)&&EnumerateSafe(root,dir).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase)))||(Directory.Exists(patchers)&&EnumerateSafe(root,patchers).Any(f=>f.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||f.EndsWith(".cumm-disabled",StringComparison.OrdinalIgnoreCase))))throw new Exception("Сначала удалите моды: загрузчик используется plugins или patchers.");}var deletes=old.Files.Where(f=>m.Id!="together"||!IsTogetherCoreLibrary(f.Path)).Select(f=>Actual(old,f)).ToList();deletes.Add(State+m.Id+".json");Transaction(root,new Dictionary<string,byte[]>(),deletes,"remove-"+m.Id);}
+    static void Toggle(string root,Module m,bool disabled){if(m.Id=="bepinex")throw new Exception("Общий загрузчик нельзя отключать этим способом.");Manifest old=Load(root,m);if(old==null)throw new Exception("Модуль не управляется менеджером.");CheckOwned(root,old);if(old.Disabled==disabled)return;var writes=new Dictionary<string,byte[]>();var deletes=new List<string>();foreach(Item f in old.Files.Where(f=>f.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)&&(m.Id!="together"||!IsTogetherCoreLibrary(f.Path)))){string source=Actual(old,f),dest=f.Path+(disabled?".cumm-disabled":"");if(File.Exists(Under(root,dest)))throw new Exception("Путь уже занят: "+dest);writes.Add(dest,File.ReadAllBytes(Under(root,source)));deletes.Add(source);}old.Disabled=disabled;writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(old)));Transaction(root,writes,deletes,(disabled?"disable-":"enable-")+m.Id);}
     static void Adopt(string root,Module m){if(Load(root,m)!=null)throw new Exception("Модуль уже управляется менеджером.");var files=Detect(root,m);if(files.Count==0)throw new Exception("Файлы не найдены.");var mf=new Manifest{Module=m.Id,Version="adopted",Files=files.Select(p=>new Item{Path=p,Hash=Hash(Under(root,p))}).ToList()};foreach(Module other in AllModules.Where(x=>x.Id!=m.Id)){var om=Load(root,other);if(om!=null&&om.Files.Any(f=>files.Contains(f.Path,StringComparer.OrdinalIgnoreCase)))throw new Exception("Некоторые файлы уже принадлежат другому модулю.");}var writes=files.ToDictionary(p=>p,p=>File.ReadAllBytes(Under(root,p)));writes.Add(State+m.Id+".json",Encoding.UTF8.GetBytes(Json.Serialize(mf)));Transaction(root,writes,new List<string>(),"adopt-"+m.Id);}
     static Uri ValidateTogetherUrl(string text, bool metadata, bool initial)
     {
