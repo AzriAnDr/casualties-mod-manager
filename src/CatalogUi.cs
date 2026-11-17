@@ -31,6 +31,9 @@ public sealed partial class Manager
     private FileSystemWatcher inboxWatcher;
     private System.Windows.Forms.Timer searchTimer, inboxTimer;
     private bool loadingCommunity, scanningInbox, compactCatalogDetails;
+    private bool communityReloadPending, communityForcePending, applyingCommunityReload;
+    private long communityRevision;
+    private Task communityReloadTask;
     private readonly Dictionary<string,ArchiveInbox.Item> inboxCache = new Dictionary<string,ArchiveInbox.Item>(StringComparer.OrdinalIgnoreCase);
     private sealed class CommunitySelection { public CommunityInstaller.InstalledRecord Record; public ModCatalog.Entry Entry; public ModCatalog.InstalledInfo Info; public ModCatalog.ManualPlugin Manual; }
     private sealed class DarkTabs : TabControl
@@ -56,7 +59,12 @@ public sealed partial class Manager
         mainTabs = new DarkTabs { Dock=DockStyle.Fill, Font=Font, DrawMode=TabDrawMode.OwnerDrawFixed, ItemSize=new Size(170,36), SizeMode=TabSizeMode.Fixed, Margin=new Padding(0,0,0,12) };
         mainTabs.DrawItem += delegate(object s, DrawItemEventArgs e) { bool active=e.Index==mainTabs.SelectedIndex; using(var brush=new SolidBrush(active?Surface:Canvas))e.Graphics.FillRectangle(brush,e.Bounds);TextRenderer.DrawText(e.Graphics,mainTabs.TabPages[e.Index].Text,Font,e.Bounds,active?Accent:Muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter); };
         var mine = NewPage("Мои моды"); var catalog = NewPage("Каталог"); var downloads = NewPage("Загрузки");var history=NewPage("История действий");
-        mainTabs.TabPages.AddRange(new[]{mine,catalog,downloads,history});history.Controls.Add(log);
+        mainTabs.TabPages.AddRange(new[]{mine,catalog,downloads,history});
+        var historyLayout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=Padding.Empty};
+        historyLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));historyLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));historyLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var historyActions=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoSize=true,WrapContents=false,Margin=new Padding(0,0,0,8)};
+        var coopReport=MakeButton("Отчёт для кооператива…",245,false);coopReport.Click+=async delegate{await SaveCoopReport();};historyActions.Controls.Add(coopReport);
+        historyLayout.Controls.Add(historyActions,0,0);historyLayout.Controls.Add(log,0,1);history.Controls.Add(historyLayout);
         var mineLayout = new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=Canvas };
         mineLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); mineLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));mineLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));mineLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         list.MinimumSize=new Size(0,145); mineLayout.Controls.Add(list,0,0);mineLayout.Controls.Add(information,0,1);
@@ -69,7 +77,7 @@ public sealed partial class Manager
         communityActions.Controls.AddRange(new Control[]{update,toggleExtra,removeExtra,adoptExtra});combinedActions.Controls.Add(communityActions);mineLayout.Controls.Add(combinedActions,0,2);mine.Controls.Add(mineLayout);
         mineLayout.SizeChanged+=delegate{int width=Math.Max(250,mineLayout.ClientSize.Width);actions.MaximumSize=new Size(width,0);actions.Width=width;communityActions.MaximumSize=new Size(width,0);communityActions.Width=width;};
         BuildCatalogPage(catalog);BuildInboxPage(downloads);
-        game.TextChanged+=delegate{communityDetected.Clear();ModCatalog.ClearDetectionCache();RenderCatalog();var reload=ReloadCommunity(false);};
+        game.TextChanged+=delegate{++communityRevision;communityDetected.Clear();ModCatalog.ClearDetectionCache();RefreshList();RenderCatalog();var reload=ReloadCommunity(false);};
         outer.Controls.Add(mainTabs,0,2);outer.Controls.Add(actionStatus,0,3);
         actionStatus.Text="Мои моды — управление установкой. Каталог — поиск новых модов. Загрузки — готовые ZIP с Nexus. Все изменения требуют закрытой игры.";
         Shown+=async delegate { await ReloadCommunity(false);StartInboxWatcher(); };
@@ -112,27 +120,71 @@ public sealed partial class Manager
         catalogStatus=new Label{Text="Загрузка каталога…",ForeColor=Muted,Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft,Margin=new Padding(0,6,0,0)};layout.Controls.Add(catalogStatus,0,3);page.Controls.Add(layout);
         searchTimer=new System.Windows.Forms.Timer{Interval=220};searchTimer.Tick+=delegate{searchTimer.Stop();RenderCatalog();};catalogSearch.TextChanged+=delegate{searchTimer.Stop();searchTimer.Start();};installedOnly.CheckedChanged+=delegate{RenderCatalog();};updatesOnly.CheckedChanged+=delegate{RenderCatalog();};showAdult.CheckedChanged+=delegate{RenderCatalog();};ShowCatalogDetails();
     }
-    private async Task ReloadCommunity(bool force)
+    private string CommunityGameRoot()
     {
-        if(loadingCommunity)return;loadingCommunity=true;bool retryChangedFolder=false;catalogStatus.Text="Получаю каталог и проверяю установленные версии…";
+        try{return SteamGameLocator.IsGame(game.Text)?Path.GetFullPath(game.Text):null;}catch{return null;}
+    }
+    private bool CommunitySnapshotCurrent(string root,long revision)
+    {
+        return !IsDisposed&&revision==communityRevision&&String.Equals(root,CommunityGameRoot(),StringComparison.OrdinalIgnoreCase);
+    }
+    private Task ReloadCommunity(bool force)
+    {
+        // Requests made during a load are coalesced, never dropped. In particular
+        // keep a requested forced refresh when a cache-only load is already busy.
+        communityReloadPending=true;communityForcePending|=force;
+        if(loadingCommunity)return communityReloadTask??Task.FromResult(0);
+        loadingCommunity=true;communityReloadTask=RunCommunityReloads();return communityReloadTask;
+    }
+    private async Task RunCommunityReloads()
+    {
         try
         {
-            string root=SteamGameLocator.IsGame(game.Text)?Path.GetFullPath(game.Text):null;
-            var loaded=await Task.Run(()=>ModCatalog.Load(force));
-            var detected=await Task.Run(()=>DetectEntries(root,loaded));
-            if(force||KnownTogetherVersion==null)
-                try{var release=await Task.Run(()=>ReadGitHubRelease("creaturefeaturelarry","casualties-together"));KnownTogetherVersion=Convert.ToString(release["tag_name"]).TrimStart('v','V');}catch(Exception error){WriteLog("Together: версию GitHub пока не удалось проверить. "+error.Message);}
-            if(IsDisposed)return;communityEntries=loaded;communityDetected=detected;
-            string currentRoot=SteamGameLocator.IsGame(game.Text)?Path.GetFullPath(game.Text):null;
-            if(!String.Equals(root,currentRoot,StringComparison.OrdinalIgnoreCase)){communityDetected.Clear();retryChangedFolder=true;return;}
-            RenderCatalog();RefreshList();
-            string freshness=ModCatalog.IsStale?"Сохранённая копия; сеть недоступна":"Каталог обновлён";
-            catalogStatus.Text=freshness+" · "+communityEntries.Count+" записей · Metadata-generator (MIT) · совместимость не гарантируется";
-            if(ModCatalog.IsStale&&ModCatalog.LastError!=null)WriteLog("Каталог: используется резервная копия. "+ModCatalog.LastError);
-            await ScanInbox();
+            while(communityReloadPending&&!IsDisposed)
+            {
+                communityReloadPending=false;bool force=communityForcePending;communityForcePending=false;
+                string root=CommunityGameRoot();long revision=communityRevision;
+                catalogStatus.Text="Получаю каталог и проверяю установленные версии…";
+                try
+                {
+                    var loaded=await Task.Run(()=>ModCatalog.Load(force));
+                    if(!CommunitySnapshotCurrent(root,revision)){communityReloadPending=true;continue;}
+                    var detected=await Task.Run(()=>DetectEntries(root,loaded));
+                    if(!CommunitySnapshotCurrent(root,revision)){communityReloadPending=true;continue;}
+                    communityEntries=loaded;communityDetected=detected;
+                    applyingCommunityReload=true;
+                    try{RenderCatalog();RefreshList();}finally{applyingCommunityReload=false;}
+                    string freshness=ModCatalog.IsStale?"Сохранённая копия; сеть недоступна":"Каталог обновлён";
+                    catalogStatus.Text=freshness+" · "+communityEntries.Count+" записей · Metadata-generator (MIT) · совместимость не гарантируется";
+                    if(ModCatalog.IsStale&&ModCatalog.LastError!=null)WriteLog("Каталог: используется резервная копия. "+ModCatalog.LastError);
+                    // Installed rows are already current; a separate release/network
+                    // check must not delay their publication after a disk mutation.
+                    if(force||KnownTogetherVersion==null)
+                        try
+                        {
+                            var release=await Task.Run(()=>ReadGitHubRelease("creaturefeaturelarry","casualties-together"));
+                            if(CommunitySnapshotCurrent(root,revision))KnownTogetherVersion=Convert.ToString(release["tag_name"]).TrimStart('v','V');
+                        }
+                        catch(Exception error){if(CommunitySnapshotCurrent(root,revision))WriteLog("Together: версию GitHub пока не удалось проверить. "+error.Message);}
+                    if(CommunitySnapshotCurrent(root,revision))await ScanInbox();
+                }
+                catch(Exception error)
+                {
+                    if(CommunitySnapshotCurrent(root,revision)){catalogStatus.Text="Не удалось получить каталог: "+error.Message;WriteLog(catalogStatus.Text);}
+                }
+            }
         }
-        catch(Exception error){catalogStatus.Text="Не удалось получить каталог: "+error.Message;WriteLog(catalogStatus.Text);}
-        finally{loadingCommunity=false;if(retryChangedFolder&&!IsDisposed){var retry=ReloadCommunity(false);}}
+        finally{loadingCommunity=false;communityReloadTask=null;}
+    }
+    private void RefreshCommunityInstalledState(string root)
+    {
+        // Every ordinary My Mods refresh rereads local detections once using the
+        // scanner's shared disk snapshot. Never reuse an earlier async dictionary.
+        // This also covers builtin actions whose RefreshList lives in Manager.cs.
+        ++communityRevision;
+        if(loadingCommunity)communityReloadPending=true;
+        communityDetected=DetectEntries(root,communityEntries);
+        RenderCatalog();
     }
     private Dictionary<string,ModCatalog.InstalledInfo> DetectEntries(string root,List<ModCatalog.Entry> entries)
     {
@@ -249,6 +301,7 @@ public sealed partial class Manager
     private void AppendCommunityRows(string root)
     {
         if(communityActions==null)return;
+        if(!applyingCommunityReload)RefreshCommunityInstalledState(root);
         managedCommunity=CommunityInstaller.ListInstalled(root);var ids=new HashSet<string>();var represented=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(ListViewItem row in list.Items){var module=row.Tag as Module;if(module!=null)foreach(string path in Detect(root,module))represented.Add(InventoryPath(path));}
         foreach(var record in managedCommunity)
@@ -344,10 +397,10 @@ public sealed partial class Manager
             if(!Preview(info.Files.ToDictionary(f=>f,f=>new byte[0]),"Подключить управление «"+entry.Name+"»? Найденные DLL будут сохранены в резервную копию. Другие файлы и настройки не принимаются под управление.","Подключить управление")){SetStatus(entry.Name+": подключение управления отменено.",false);return;}
             ModCatalog.ClearDetectionCache();var current=ModCatalog.Detect(root,entry);
             if(!current.Installed||current.Ambiguous||!current.Files.OrderBy(f=>f).SequenceEqual(info.Files.OrderBy(f=>f)))throw new Exception("Файлы изменились во время подтверждения. Обновите список и повторите.");
-            CommunityInstaller.Adopt(root,entry.Id,entry.Name,info.Version,info.Files);SetStatus(entry.Name+": управление включено; копия сохранена.",false);ModCatalog.ClearDetectionCache();RefreshList();var refresh=ReloadCommunity(false);
+            CommunityInstaller.Adopt(root,entry.Id,entry.Name,info.Version,info.Files);SetStatus(entry.Name+": управление включено; копия сохранена.",false);ModCatalog.ClearDetectionCache();
         }
         catch(Exception error){ShowFailure(entry.Name+": подключение управления",error);}
-        finally{busy=false;UpdateDetails();ShowCatalogDetails();var refresh=ReloadCommunity(false);}
+        finally{busy=false;RefreshList();ShowCatalogDetails();var refresh=ReloadCommunity(false);}
     }
     private void BuildInboxPage(TabPage page)
     {

@@ -1,0 +1,11 @@
+Launcher0.5.10 / Russian0.2.12 unchanged / game1.0.2
+EXE SHA256: 65164eacad9adaab8d10e67f4c18b3a784f07b3e748776ba17801ac94d223ea7
+Production builds:0warnings0errors.
+20 extracted exact async/row assertions PASS: immediate managed/catalog-manual/unassigned deletion; queuedsame-root changes; staleinflight rejection before assignment; changedroot; forcedreload preserved; Togethernetworkdelay doesn'tdelay installedrows. Inert UI/disk stubs, no visible manager/game.
+18 diagnostic tests PASS: pluginversions/hash, disabled/duplicates, nativeDLL exclusion, paths/order independent fingerprint, sameversion changedSHA, bounded/locked/missing inputs incomplete, privacy and historical-only log parsing.
+FinalEXE reflection smokePASS against actual installedfiles read-only; report contains no absolute gameroot/accountname. No plugin executing assembly loaded.
+Defender finalEXE custom scan completed withoutmatchingdetections. Definitions1.463.342.0; antivirus/realtime true. Not Microsoft submission verdict.
+Russian ZIP unchanged a89e106327f49bbd97979bfea81fbac5f27b853bc890b14a4a856aff5d0f91a1.
+
+Together investigation (read-only currentDLL decompile and suppliedNov15log): startup Mismatchingversion checks gameversion againsttargetlist, independently ofpeers. Peer introduction validates game+Together tag, optionalDLL gamehash, optionalGUIDset. CurrentinstalledTogether5.5.0 DLL byte-identical to official550archive (SHA256c5ce87be6b574d78130d001cd5787f3b0982becccfd9b711f4bbf98d82c0b0a6). Suppliedlog has no comparedclient/hostvalues; hostreport needed to identify actualconnectionrefusal. No validationbypass or claimofresolvedlivecoop.
+No installedmod/config/save changes and no game/visiblemanager launch. Tests do not establish interactiveUI or liveSteam session proof.

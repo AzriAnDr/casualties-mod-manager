@@ -13,12 +13,12 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-[assembly: AssemblyVersion("0.5.9.0")]
-[assembly: AssemblyFileVersion("0.5.9.0")]
+[assembly: AssemblyVersion("0.5.10.0")]
+[assembly: AssemblyFileVersion("0.5.10.0")]
 
 public sealed partial class Manager : Form
 {
-    const string LauncherVersion = "0.5.9";
+    const string LauncherVersion = "0.5.10";
     const string UpdateFeed = "https://github.com/AzriAnDr/casualties-mod-manager/releases/latest/download/update.json";
     static string KnownTogetherVersion;
     public sealed class Item { public string Path; public string Hash; }
@@ -170,6 +170,24 @@ public sealed partial class Manager : Form
         NativeTheme.Attach(this);
         Shown += delegate { RefreshList(); };
         Shown += async delegate { await CheckModuleUpdates(false); };
+    }
+
+    private async Task SaveCoopReport()
+    {
+        if(busy)return;
+        try {
+            string root=Validate(game.Text,false);
+            using(var dialog=new SaveFileDialog{Filter="Текстовый отчёт|*.txt",FileName="Casualties-coop-report.txt",Title="Сохранить отчёт для сравнения с хостом",OverwritePrompt=true}) {
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                busy=true;UpdateDetails();SetStatus("Собираю версии и контрольные суммы файлов для кооператива…",false);
+                string report=await Task.Run(()=>CoopDiagnostics.Build(root));
+                File.WriteAllText(dialog.FileName,report,new UTF8Encoding(true));
+                SetStatus("Отчёт сохранён. Сравните его с отчётом хоста: одинаковый номер версии не гарантирует одинаковые файлы.",false);
+                WriteLog("Отчёт для кооператива сохранён: "+dialog.FileName);
+            }
+        }
+        catch(Exception error){ShowFailure("Отчёт для кооператива",error);}
+        finally{busy=false;UpdateDetails();ShowCatalogDetails();}
     }
 
     sealed class ThemeButton : Button

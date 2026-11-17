@@ -16,7 +16,7 @@ def ensure_cecil(cache):
         try:
             with tempfile.NamedTemporaryFile(dir=cache, prefix='cecil-', suffix='.part', delete=False) as output:
                 temporary = Path(output.name)
-                request = urllib.request.Request(CECIL_URL, headers={'User-Agent': 'Casualties-ModManager-build/0.5.9'})
+                request = urllib.request.Request(CECIL_URL, headers={'User-Agent': 'Casualties-ModManager-build/0.5.10'})
                 with urllib.request.urlopen(request, timeout=20) as response:
                     total = 0
                     while True:
@@ -97,11 +97,11 @@ loader=work/'BepInEx_win_x64_5.4.23.5.zip'
 if not loader.exists():
     urllib.request.urlretrieve('https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip',loader)
 assert hashlib.sha256(loader.read_bytes()).hexdigest()=='82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4', 'BepInEx checksum mismatch'
-exe = root.parent/'Casualties-ModManager-0.5.9.exe'
+exe = root.parent/'Casualties-ModManager-0.5.10.exe'
 csc = Path('C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe')
 helper=work/'UpdateHelper.exe'
 subprocess.run([str(csc),'/nologo','/target:winexe','/out:'+str(helper),str(root/'src/UpdateHelper.cs')],check=True)
-subprocess.run([str(csc), '/nologo', '/target:winexe', '/platform:x64', '/out:'+str(exe), '/win32icon:'+str(assets/'AppIcon.ico'), '/resource:'+str(assets/'AppIcon.ico')+',AppIcon.ico', '/reference:'+str(cecil), '/resource:'+str(cecil)+',Mono.Cecil.dll', '/resource:'+str(assets/'CECIL-LICENSE.txt')+',CecilLicense.txt', '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll', '/reference:System.Web.Extensions.dll', '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll', '/resource:'+str(work/'russian.zip')+',russian.zip', '/resource:'+str(work/'wiki.zip')+',wiki.zip', '/resource:'+str(loader)+',Loader.zip', '/resource:'+str(work/'BundledCatalog.json')+',BundledCatalog.json', '/resource:'+str(helper)+',UpdateHelper.exe','/resource:'+str(assets/'CatalogSnapshot.json')+',CatalogSnapshot.json','/resource:'+str(assets/'CATALOG-LICENSE.txt')+',CatalogLicense.txt',str(root/'src/MetadataRuntime.cs'),str(root/'src/ModCatalog.cs'),str(root/'src/CommunityInstaller.cs'),str(root/'src/ArchiveInbox.cs'),str(root/'src/CatalogUi.cs'),str(root/'src/SteamGameLocator.cs'),str(root/'src/LauncherUpdate.cs'),str(root/'src/ModuleCatalog.cs'),str(root/'src/ModuleUi.cs'),str(root/'src/NativeTheme.cs'),str(root/'src/Manager.cs')],check=True)
+subprocess.run([str(csc), '/nologo', '/target:winexe', '/platform:x64', '/out:'+str(exe), '/win32icon:'+str(assets/'AppIcon.ico'), '/resource:'+str(assets/'AppIcon.ico')+',AppIcon.ico', '/reference:'+str(cecil), '/resource:'+str(cecil)+',Mono.Cecil.dll', '/resource:'+str(assets/'CECIL-LICENSE.txt')+',CecilLicense.txt', '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll', '/reference:System.Web.Extensions.dll', '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll', '/resource:'+str(work/'russian.zip')+',russian.zip', '/resource:'+str(work/'wiki.zip')+',wiki.zip', '/resource:'+str(loader)+',Loader.zip', '/resource:'+str(work/'BundledCatalog.json')+',BundledCatalog.json', '/resource:'+str(helper)+',UpdateHelper.exe','/resource:'+str(assets/'CatalogSnapshot.json')+',CatalogSnapshot.json','/resource:'+str(assets/'CATALOG-LICENSE.txt')+',CatalogLicense.txt',str(root/'src/CoopDiagnostics.cs'),str(root/'src/MetadataRuntime.cs'),str(root/'src/ModCatalog.cs'),str(root/'src/CommunityInstaller.cs'),str(root/'src/ArchiveInbox.cs'),str(root/'src/CatalogUi.cs'),str(root/'src/SteamGameLocator.cs'),str(root/'src/LauncherUpdate.cs'),str(root/'src/ModuleCatalog.cs'),str(root/'src/ModuleUi.cs'),str(root/'src/NativeTheme.cs'),str(root/'src/Manager.cs')],check=True)
 # Versioned output: preserve previous release binaries until publication.
-(root/'BUILD-REPORT.txt').write_text('Manager version: 0.5.9\nRussian version: '+catalog['russian']+'\nWiki version: '+catalog['wiki']+'\nPlugin builds: passed, no warnings\nManager build: passed\nManager SHA256: '+hashlib.sha256(exe.read_bytes()).hexdigest()+'\n',encoding='utf8')
+(root/'BUILD-REPORT.txt').write_text('Manager version: 0.5.10\nRussian version: '+catalog['russian']+'\nWiki version: '+catalog['wiki']+'\nPlugin builds: passed, no warnings\nManager build: passed\nManager SHA256: '+hashlib.sha256(exe.read_bytes()).hexdigest()+'\n',encoding='utf8')
 print(exe)
